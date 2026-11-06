@@ -26,6 +26,7 @@ export const business = {
   instagram: 'https://www.instagram.com/key_lashes_brows/',
   instagramHandle: '@key_lashes_brows',
   tiktok: 'https://www.tiktok.com/@keylin.romero.stu',
+  email: 'keyromero50@gmail.com',
   sinpe: '6478-7271',
   sinpeName: 'Keylin Torres Romero',
   googleMapsReviewUrl: 'https://www.google.com/maps/search/?api=1&query=Keylin+Romero+Brows+Lashes+Studio',

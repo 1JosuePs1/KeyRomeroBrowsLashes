@@ -3,6 +3,7 @@ export type Appointment = {
   createdAt: string
   name: string
   phone: string
+  email: string
   services: string[]
   date: string
   time: string

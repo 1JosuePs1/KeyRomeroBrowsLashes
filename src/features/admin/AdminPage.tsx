@@ -28,6 +28,7 @@ const demoAppointment: Appointment = {
   createdAt: new Date().toISOString(),
   name: 'María José Pérez',
   phone: '50688887777',
+  email: 'mariajose@example.com',
   services: ['Pestañas híbridas'],
   date: '2026-11-12',
   time: '12:30 p. m.',
