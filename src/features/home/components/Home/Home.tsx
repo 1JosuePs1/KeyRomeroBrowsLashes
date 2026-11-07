@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { PointerEvent, ReactNode } from 'react'
 import { business, categories, formatColones, reviews, weeklySchedule } from '../../../../config/business'
 import styles from './Home.module.css'
 import heroImage from '../../../../assets/img/fotosPesta/1.jpeg'
@@ -28,6 +28,39 @@ function TikTokIcon() {
 
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const reviewsRef = useRef<HTMLDivElement>(null)
+  const isDragging = useRef(false)
+  const dragStart = useRef({ x: 0, scrollLeft: 0 })
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const slider = reviewsRef.current
+      if (!slider || isDragging.current) return
+      const card = slider.querySelector('blockquote')
+      const gap = 20
+      const nextPosition = slider.scrollLeft + (card?.clientWidth ?? 330) + gap
+      if (nextPosition >= slider.scrollWidth - slider.clientWidth - 4) {
+        slider.scrollTo({ left: 0, behavior: 'smooth' })
+      } else {
+        slider.scrollTo({ left: nextPosition, behavior: 'smooth' })
+      }
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const startDragging = (event: PointerEvent<HTMLDivElement>) => {
+    const slider = reviewsRef.current
+    if (!slider) return
+    isDragging.current = true
+    dragStart.current = { x: event.clientX, scrollLeft: slider.scrollLeft }
+    slider.setPointerCapture(event.pointerId)
+  }
+  const dragReviews = (event: PointerEvent<HTMLDivElement>) => {
+    const slider = reviewsRef.current
+    if (!slider || !isDragging.current) return
+    slider.scrollLeft = dragStart.current.scrollLeft - (event.clientX - dragStart.current.x)
+  }
+  const stopDragging = () => {
+    isDragging.current = false
+  }
   return (
     <div className={styles.page}>
       <header className={styles.nav}>
@@ -41,7 +74,7 @@ export default function Home() {
         <section id="inicio" className={styles.hero}><div className={styles.heroCopy}><p className={styles.rating}>★★★★★ <span>+3 500 clientas nos siguen</span></p><h1>Mirada <em>perfecta,</em><br />sin esfuerzo.</h1><p className={styles.lead}>Pestañas pelo a pelo, laminado, henna y micropigmentación de cejas. Un estudio íntimo en Cartago donde cada detalle está pensado para usted.</p><div className={styles.actions}><a className={styles.goldButton} href="/reservar">Agendar mi cita <span>→</span></a><a className={styles.outlineButton} href="#servicios">Ver servicios</a></div><a className={styles.locationLink} href={business.wazeUrl} target="_blank" rel="noreferrer">⌖ {business.city} · frente a Defensa Pública</a></div><div className={styles.heroVisual}><img src={heroImage} alt="Resultado de pestañas de Keylin Romero" /><div className={styles.heroBadge}><strong>5.0</strong><small>Calificación de clientas</small></div></div></section>
         <section id="galeria" className={styles.section}><SectionTitle eyebrow="Galería">Resultados que <em>hablan solos.</em></SectionTitle><div className={styles.gallery}>{[[galleryOne, 'Pestañas híbridas'], [galleryTwo, 'Pestañas 2D'], [galleryThree, 'Micropigmentación'], [galleryFour, 'Cejas y pestañas'], [galleryFive, 'Volumen']].map(([src, label], index) => <figure className={`${index === 1 || index === 2 ? styles.squarePhoto : styles.portraitPhoto} ${styles[`photo${index + 1}`]}`} key={label}><img src={src} alt={label} /><figcaption>{label}</figcaption></figure>)}</div></section>
         <section id="servicios" className={`${styles.section} ${styles.servicesSection}`}><SectionTitle eyebrow="Menú de servicios">Belleza en <em>cada detalle.</em></SectionTitle><div className={styles.serviceCards}>{categories.map((category, index) => <article key={category.id} className={`${styles.serviceCard} ${index === 2 ? styles.darkCard : ''}`}><span className={styles.cardNumber}>0{index + 1}</span><h3>{category.name}</h3><p className={styles.cardMeta}>{category.id === 'micropigmentacion' ? '2 h 30 min' : category.id === 'cejas' ? '1 h' : '1 h 30 min'} · adelanto {formatColones(category.deposit)}</p><ul>{category.services.map((service) => <li key={service.id}><span>{service.name}</span><b>{formatColones(service.price)}</b></li>)}</ul>{category.note && <p className={styles.cardNote}>{category.note} Keylin le enviará los requisitos por WhatsApp unos días antes.</p>}</article>)}</div></section>
-        <section id="resenas" className={styles.section}><SectionTitle eyebrow="Reseñas">Lo que dicen <em>mis clientas.</em></SectionTitle><div className={styles.reviewGrid}>{reviews.map((review) => <blockquote key={review.name}><span className={styles.quote}>“</span><p>{review.text}</p><footer>{review.name} <span>★★★★★</span></footer></blockquote>)}</div><a className={styles.darkButton} href={business.googleMapsReviewUrl} target="_blank" rel="noreferrer">Dejar reseña en Google Maps</a></section>
+        <section id="resenas" className={styles.section}><SectionTitle eyebrow="Reseñas">Lo que dicen <em>mis clientas.</em></SectionTitle><div className={styles.reviewSlider}><div className={styles.reviewGrid} ref={reviewsRef} onPointerDown={startDragging} onPointerMove={dragReviews} onPointerUp={stopDragging} onPointerCancel={stopDragging} onPointerLeave={stopDragging}>{reviews.map((review) => <blockquote key={review.name}><span className={styles.quote}>“</span><p>{review.text}</p><footer>{review.name} <span>★★★★★</span></footer></blockquote>)}</div></div><a className={styles.darkButton} href={business.googleMapsReviewUrl} target="_blank" rel="noreferrer">Dejar reseña en Google Maps</a></section>
         <section id="ubicacion" className={`${styles.section} ${styles.locationSection}`}><SectionTitle eyebrow="Visítenos">Le esperamos en <em>Cartago.</em></SectionTitle><div className={styles.locationGrid}><iframe title="Mapa de Cartago" src="https://www.google.com/maps?q=Tribunales+de+Justicia+Cartago+Costa+Rica&output=embed" loading="lazy" /><div className={styles.locationInfo}><h3>⌖ {business.city}</h3><p>{business.address}</p><a className={styles.goldButton} href={business.wazeUrl} target="_blank" rel="noreferrer">Llegar con Waze</a><div className={styles.hours}><p>Lunes a viernes <b>{weeklySchedule.weekdays}</b></p><p>Sábado <b>{weeklySchedule.saturday}</b></p><p>Domingo <b>{weeklySchedule.sunday}</b></p></div><div className={styles.socialLinks}><a href={business.instagram} target="_blank" rel="noreferrer"><InstagramIcon />Instagram</a><a href={business.tiktok} target="_blank" rel="noreferrer"><TikTokIcon />TikTok</a><a href={`https://wa.me/${business.whatsappNumber}`} target="_blank" rel="noreferrer"><WhatsAppIcon />WhatsApp</a></div></div></div></section>
       </main>
       <footer className={styles.footer}><div className={styles.footerMark}>KR</div><h2>Su mejor versión<br /><em>empieza aquí.</em></h2><div className={styles.footerActions}><a className={styles.goldButton} href="/reservar">Agendar cita</a><a className={styles.emailBadge} href={`mailto:${business.email}`}>✉ <span>{business.email}</span></a></div><p>{business.name} · © 2026 · Cartago centro, Costa Rica</p></footer><a className={styles.whatsapp} href={`https://wa.me/${business.whatsappNumber}`} target="_blank" rel="noreferrer" aria-label="Escribir por WhatsApp"><WhatsAppIcon /></a>
