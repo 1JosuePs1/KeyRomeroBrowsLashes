@@ -1,5 +1,6 @@
 import { clearAdminCookie, createAdminCookie, verifyPassword } from './auth.js'
 import { neon } from '@neondatabase/serverless'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const config = { runtime: 'nodejs' }
 
@@ -27,23 +28,56 @@ async function getConfiguredPasswordHash() {
   return rows[0]?.password_hash as string | undefined
 }
 
-export default async function handler(request: Request) {
-  if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+function readBody(request: IncomingMessage) {
+  return new Promise<{ password?: unknown } | null>((resolve, reject) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk) => { body += chunk })
+    request.on('end', () => {
+      try {
+        resolve(JSON.parse(body) as { password?: unknown })
+      } catch {
+        resolve(null)
+      }
+    })
+    request.on('error', reject)
+  })
+}
+
+function sendJson(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
+  response.writeHead(status, { 'Content-Type': 'application/json', ...headers })
+  response.end(JSON.stringify(body))
+}
+
+export default async function handler(request: IncomingMessage, response: ServerResponse) {
+  if (request.method !== 'POST') {
+    response.writeHead(405)
+    response.end('Method not allowed')
+    return
+  }
 
   let configuredPasswordHash: string | undefined
   try {
     configuredPasswordHash = await getConfiguredPasswordHash()
   } catch (error) {
     console.error('Admin credentials lookup error', error)
-    return Response.json({ error: 'No se pudo validar el acceso' }, { status: 500 })
+    sendJson(response, 500, { error: 'No se pudo validar el acceso' })
+    return
   }
-  if (!configuredPasswordHash) return new Response('Admin access is not configured', { status: 503 })
+  if (!configuredPasswordHash) {
+    response.writeHead(503)
+    response.end('Admin access is not configured')
+    return
+  }
 
-  const body = await request.json().catch(() => null) as { password?: unknown } | null
+  const body = await readBody(request)
   const password = typeof body?.password === 'string' ? body.password : ''
   const valid = await verifyPassword(password, configuredPasswordHash)
 
-  return valid
-    ? new Response(JSON.stringify({ authenticated: true }), { status: 200, headers: { 'Content-Type': 'application/json', 'Set-Cookie': createAdminCookie() } })
-    : new Response(JSON.stringify({ authenticated: false }), { status: 401, headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearAdminCookie() } })
+  sendJson(
+    response,
+    valid ? 200 : 401,
+    { authenticated: valid },
+    { 'Set-Cookie': valid ? createAdminCookie() : clearAdminCookie() },
+  )
 }
