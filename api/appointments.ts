@@ -62,7 +62,7 @@ export default async function handler(request: Request) {
     const sql = getDatabase()
 
     if (request.method === 'GET') {
-      if (!isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
+      if (!await isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
       const rows = await sql`SELECT id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url, status FROM appointments ORDER BY created_at DESC`
       return Response.json({
         appointments: rows.filter((row) => row.status !== 'archived').map(toAppointment),
@@ -113,7 +113,7 @@ export default async function handler(request: Request) {
     }
 
     if (request.method === 'PATCH') {
-      if (!isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
+      if (!await isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
       const body = await request.json() as { id?: string; status?: string }
       if (!body.id || !['pending', 'archived'].includes(body.status ?? '')) return Response.json({ error: 'Solicitud inválida' }, { status: 400 })
       await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`

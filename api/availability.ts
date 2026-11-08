@@ -33,7 +33,7 @@ export default async function handler(request: Request) {
       })))
     }
 
-    if (!isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
+    if (!await isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
     if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 })
     const body = await request.json() as { date?: string; enabled?: boolean; start?: number; end?: number; blockedTimes?: string[] }
     if (!body.date || typeof body.enabled !== 'boolean') return Response.json({ error: 'Solicitud inválida' }, { status: 400 })
