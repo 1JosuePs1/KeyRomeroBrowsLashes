@@ -8,13 +8,13 @@ function getSecret() {
 
 async function digest(value: string) {
   const bytes = new TextEncoder().encode(value)
-  const hash = await crypto.subtle.digest('SHA-256', bytes)
+  const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes)
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 async function sign(value: string) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(getSecret()), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
+  const key = await globalThis.crypto.subtle.importKey('raw', new TextEncoder().encode(getSecret()), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const signature = await globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
   return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
