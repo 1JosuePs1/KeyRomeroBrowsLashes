@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { business, categories, formatColones, formatDuration, weeklySchedule, type Service } from '../../config/business'
 import { formatTimeLabel, getBlockedTimes, getScheduleForDate, readDayOverrides } from '../../config/availability'
-import { saveAppointment } from '../../config/appointments'
+import type { Appointment } from '../../config/appointments'
 import styles from './BookingPage.module.css'
 
 const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Setiembre', 'Octubre', 'Noviembre', 'Diciembre']
@@ -15,8 +15,7 @@ function getMonthDays(month: Date) {
   return [...leadingDays, ...days]
 }
 
-function getAvailableTimes(date: Date, durationMin: number) {
-  const overrides = readDayOverrides()
+function getAvailableTimes(date: Date, overrides: ReturnType<typeof readDayOverrides>) {
   const schedule = getScheduleForDate(date, overrides)
   if (!schedule) return []
   const blockedTimes = getBlockedTimes(date, overrides)
@@ -24,13 +23,19 @@ function getAvailableTimes(date: Date, durationMin: number) {
   const maxAppointments = date.getDay() === 6 ? weeklySchedule.saturdayMaxAppointments : weeklySchedule.maxAppointments
   const { start, end } = schedule
   const slots: string[] = []
-  for (let minutes = start; minutes + Math.max(durationMin, appointmentInterval) <= end && slots.length < maxAppointments; minutes += appointmentInterval) {
+  for (let minutes = start; minutes < end && slots.length < maxAppointments; minutes += appointmentInterval) {
     const hour = Math.floor(minutes / 60)
     const minute = minutes % 60
     const slot = formatTimeLabel(hour, minute)
     if (!blockedTimes.includes(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`)) slots.push(slot)
   }
   return slots
+}
+
+function getHoursForDate(date: Date) {
+  if (date.getDay() === 6) return weeklySchedule.saturday
+  if (date.getDay() === 2 || date.getDay() === 4) return weeklySchedule.weekdaysMorning
+  return weeklySchedule.weekdays
 }
 
 export default function BookingPage() {
@@ -43,7 +48,10 @@ export default function BookingPage() {
   const [email, setEmail] = useState('')
   const [receipt, setReceipt] = useState<File | null>(null)
   const [receiptName, setReceiptName] = useState('')
+  const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null)
+  const [submitError, setSubmitError] = useState('')
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+  const [overrides, setOverrides] = useState<ReturnType<typeof readDayOverrides>>([])
   const services = allServices.filter((service) => selected.includes(service.id))
   const visibleCategory = categories.find((category) => category.id === activeCategory) ?? categories[0]
   const total = services.reduce((sum, service) => sum + service.price, 0)
@@ -56,9 +64,14 @@ export default function BookingPage() {
   const canGoPrevious = calendarMonth > currentMonth
   const canGoNext = calendarMonth < lastMonth
   const toggle = (service: Service) => setSelected((current) => current.includes(service.id) ? current.filter((id) => id !== service.id) : [...current, service.id])
+  useEffect(() => {
+    fetch('/api/availability')
+      .then(async (response) => response.ok ? await response.json() as ReturnType<typeof readDayOverrides> : [])
+      .then(setOverrides)
+      .catch(() => undefined)
+  }, [])
   const send = async () => {
-    if (!name || !phone || !email || !date || !time || !services.length) return
-    const serviceText = services.map((service) => service.name).join(', ')
+    if (!name || !phone || !email || !date || !time || !services.length || !receipt) return
     const receiptDataUrl = receipt
       ? await new Promise<string | undefined>((resolve) => {
           const reader = new FileReader()
@@ -67,7 +80,7 @@ export default function BookingPage() {
           reader.readAsDataURL(receipt)
         })
       : undefined
-    saveAppointment({
+    const appointment: Appointment = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
       name,
@@ -80,16 +93,31 @@ export default function BookingPage() {
       deposit,
       receiptName,
       receiptDataUrl,
+    }
+    setSubmitError('')
+    const response = await fetch('/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(appointment),
     })
-    const message = `Hola Keylin, deseo solicitar una cita.%0ANombre: ${name}%0ATeléfono: ${phone}%0ACorreo: ${email}%0AServicios: ${serviceText}%0AFecha: ${date.toLocaleDateString('es-CR')}%0AHora: ${time}%0ATotal: ${formatColones(total)}%0AAdelanto: ${formatColones(deposit)}%0AComprobante: ${receiptName || 'Lo enviaré por WhatsApp'}`
-    window.open(`https://wa.me/${business.whatsappNumber}?text=${message}`, '_blank', 'noopener,noreferrer')
+    if (!response.ok) {
+      setSubmitError(response.status === 409 ? 'Ese horario acaba de ser reservado. Elige otra hora.' : 'No pudimos guardar tu solicitud. Intenta de nuevo.')
+      return
+    }
+    setConfirmedAppointment(await response.json() as Appointment)
+  }
+  const appointmentDate = confirmedAppointment ? new Date(`${confirmedAppointment.date}T12:00:00`) : null
+  const dateLabel = appointmentDate?.toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const serviceLabel = confirmedAppointment?.services.join(', ') ?? ''
+  if (confirmedAppointment && appointmentDate && dateLabel) {
+    return <main className={styles.page}><header className={styles.header}><a href="/" className={styles.back}>← Volver al estudio</a><span className={styles.logo}>KR</span></header><section className={`${styles.content} ${styles.confirmation}`}><p className={styles.confirmationIcon}>✦</p><p className={styles.eyebrow}>Solicitud recibida</p><h1>¡Cita reservada!</h1><p className={styles.intro}>Felicidades, {confirmedAppointment.name}. Guardamos tu solicitud y Keylin la revisará para confirmar tu espacio por WhatsApp.</p><div className={styles.confirmationCard}><p className={styles.confirmationLabel}>Tu cita</p><h2>{dateLabel}</h2><p className={styles.confirmationTime}>{confirmedAppointment.time}</p><div className={styles.confirmationDetails}><p><span>Servicios</span><b>{serviceLabel}</b></p><p><span>Duración</span><b>{formatDuration(duration)}</b></p><p><span>Total</span><b>{formatColones(confirmedAppointment.total)}</b></p><p><span>Adelanto</span><b>{formatColones(confirmedAppointment.deposit)}</b></p><p><span>Horario del estudio</span><b>{getHoursForDate(appointmentDate)}</b></p></div></div><button className={styles.newBooking} onClick={() => window.location.reload()}>Hacer otra reserva</button></section></main>
   }
   return <main className={styles.page}><header className={styles.header}><a href="/" className={styles.back}>← Volver al estudio</a><span className={styles.logo}>KR</span></header><section className={styles.content}><p className={styles.eyebrow}>Agendar una cita</p><h1>Reserve su espacio.</h1><p className={styles.intro}>Un momento para usted, con atención personalizada en cada detalle.</p>
     <div className={styles.steps}>        <section><h2><span>01</span> Elija sus servicios</h2><div className={styles.tabs}>{categories.map((category) => { const count = category.services.filter((service) => selected.includes(service.id)).length; return <button type="button" key={category.id} className={`${styles.tab} ${activeCategory === category.id ? styles.activeTab : ''}`} onClick={() => setActiveCategory(category.id)}>{category.name}{count > 0 && <small>{count}</small>}</button> })}</div><p className={styles.categoryNote}>{visibleCategory.note ?? `Servicios de ${visibleCategory.name.toLowerCase()} con atención personalizada.`}</p><div className={styles.serviceList}>{visibleCategory.services.map((service) => <label key={service.id} className={selected.includes(service.id) ? styles.selected : ''}><input type="checkbox" checked={selected.includes(service.id)} onChange={() => toggle(service)} /><span><b>{service.name}</b><small>{formatDuration(service.durationMin)} · {formatColones(service.price)} · adelanto {formatColones(visibleCategory.deposit)}</small></span></label>)}</div></section>
-      <section><h2><span>02</span> Elija el día</h2><div className={styles.calendar}><div className={styles.calendarHeader}><button type="button" disabled={!canGoPrevious} onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} aria-label="Mes anterior"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4-6 6 6 6" /></svg></button><p>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</p><button type="button" disabled={!canGoNext} onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} aria-label="Mes siguiente"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4 6 6-6 6" /></svg></button></div><div className={styles.weekdays}>{['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'].map((day) => <span key={day}>{day}</span>)}</div><div className={styles.calendarDays}>{days.map((day, index) => { if (!day) return <span key={`empty-${index}`} />; const isPast = day < new Date(today.getFullYear(), today.getMonth(), today.getDate()); const available = !isPast && getAvailableTimes(day, duration || 90).length > 0; return <button type="button" disabled={!available} key={day.toISOString()} className={date?.toDateString() === day.toDateString() ? styles.daySelected : ''} onClick={() => { setDate(day); setTime('') }}><b>{day.getDate()}</b><small>{available ? `${getAvailableTimes(day, duration || 90).length} libres` : 'Cerrado'}</small></button> })}</div></div></section>
-      <section><h2><span>03</span> Elija la hora</h2><div className={styles.times}>{(date ? getAvailableTimes(date, duration || 90) : []).map((slot) => <button type="button" key={slot} className={time === slot ? styles.timeSelected : ''} onClick={() => setTime(slot)}>{slot}</button>)}</div>{!date && <p className={styles.hint}>Elija un día para ver las horas disponibles.</p>}{date?.getDay() === 0 && <p className={styles.hint}>Los domingos el estudio permanece cerrado.</p>}</section>
-      <section><h2><span>04</span> Sus datos</h2><input placeholder="Su nombre" value={name} onChange={(event) => setName(event.target.value)} /><input placeholder="Teléfono (8888-8888)" value={phone} onChange={(event) => setPhone(event.target.value)} /><input type="email" placeholder="Correo electrónico" value={email} onChange={(event) => setEmail(event.target.value)} /><label className={styles.check}><input type="checkbox" /> Agendaré para otra persona</label></section>
+      <section><h2><span>02</span> Elija el día</h2><div className={styles.calendar}><div className={styles.calendarHeader}><button type="button" disabled={!canGoPrevious} onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} aria-label="Mes anterior"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.5 4-6 6 6 6" /></svg></button><p>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</p><button type="button" disabled={!canGoNext} onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} aria-label="Mes siguiente"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7.5 4 6 6-6 6" /></svg></button></div><div className={styles.weekdays}>{['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá'].map((day) => <span key={day}>{day}</span>)}</div><div className={styles.calendarDays}>{days.map((day, index) => { if (!day) return <span key={`empty-${index}`} />; const isPast = day < new Date(today.getFullYear(), today.getMonth(), today.getDate()); const available = !isPast && getAvailableTimes(day, overrides).length > 0; return <button type="button" disabled={!available} key={day.toISOString()} className={date?.toDateString() === day.toDateString() ? styles.daySelected : ''} onClick={() => { setDate(day); setTime('') }}><b>{day.getDate()}</b><small>{available ? `${getAvailableTimes(day, overrides).length} libres` : 'Cerrado'}</small></button> })}</div></div></section>
+      <section><h2><span>03</span> Elija la hora</h2><div className={styles.times}>{(date ? getAvailableTimes(date, overrides) : []).map((slot) => <button type="button" key={slot} className={time === slot ? styles.timeSelected : ''} onClick={() => setTime(slot)}>{slot}</button>)}</div>{!date && <p className={styles.hint}>Elija un día para ver las horas disponibles.</p>}{date?.getDay() === 0 && <p className={styles.hint}>Los domingos el estudio permanece cerrado.</p>}</section>
+      <section><h2><span>04</span> Sus datos</h2><input required aria-label="Su nombre obligatorio" placeholder="Su nombre *" value={name} onChange={(event) => setName(event.target.value)} /><input required type="tel" inputMode="numeric" aria-label="Teléfono obligatorio" placeholder="Teléfono (88888888) *" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} /><input required type="email" aria-label="Correo electrónico obligatorio" placeholder="Correo electrónico *" value={email} onChange={(event) => setEmail(event.target.value)} /><label className={styles.check}><input type="checkbox" /> Agendaré para otra persona</label></section>
       <section><h2><span>05</span> Resumen de su cita</h2><div className={styles.summary}>{services.length ? <>{services.map((service) => <p key={service.id}>{service.name} <b>{formatColones(service.price)}</b></p>)}<hr /><p>Duración <b>{formatDuration(duration)}</b></p><p>Total <b>{formatColones(total)}</b></p><p>Adelanto <b>{formatColones(deposit)}</b></p></> : 'Aún no ha elegido servicios.'}</div></section>
-      <section><h2><span>06</span> Adelanto por SINPE Móvil</h2><div className={styles.payment}>Para asegurar su cupo, deposite <b>{formatColones(deposit || 5000)}</b> por SINPE Móvil al <b>{business.sinpe}</b> a nombre de <b>{business.sinpeName}</b>. El adelanto no es reembolsable si no asiste.</div><label className={styles.upload}><span>Adjunte su comprobante</span><small>{receiptName || 'PNG, JPG o PDF · máximo 10 MB'}</small><input type="file" accept=".png,.jpg,.jpeg,.pdf" onChange={(event) => { const file = event.target.files?.[0] ?? null; setReceipt(file); setReceiptName(file?.name ?? '') }} /></label><p className={styles.notice}>ⓘ Su solicitud quedará guardada para que Keylin la revise y confirme por WhatsApp.</p><button className={styles.submit} disabled={!services.length || !name || !phone || !email || !date || !time} onClick={send}>Reservar cita →</button></section>
+      <section><h2><span>06</span> Adelanto por SINPE Móvil</h2><div className={styles.payment}>Para asegurar su cupo, deposite <b>{formatColones(deposit || 5000)}</b> por SINPE Móvil al <b>{business.sinpe}</b> a nombre de <b>{business.sinpeName}</b>. El adelanto no es reembolsable si no asiste.</div><label className={styles.upload}><span>Adjunte su comprobante *</span><small>{receiptName || 'PNG, JPG o PDF · máximo 10 MB'}</small><input required type="file" accept=".png,.jpg,.jpeg,.pdf" onChange={(event) => { const file = event.target.files?.[0] ?? null; setReceipt(file); setReceiptName(file?.name ?? '') }} /></label>{submitError && <p className={styles.error}>{submitError}</p>}<p className={styles.notice}>ⓘ Su solicitud quedará guardada para que Keylin la revise y confirme por WhatsApp.</p><button className={styles.submit} disabled={!services.length || !name || !phone || !email || !date || !time || !receipt} onClick={send}>Reservar cita →</button></section>
     </div></section></main>
 }

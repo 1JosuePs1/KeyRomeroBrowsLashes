@@ -29,11 +29,14 @@ export function dateKey(date: Date) {
 
 export function getScheduleForDate(date: Date, overrides: DayOverride[]) {
   const override = overrides.find((item) => item.date === dateKey(date))
-  if (override) return override.enabled ? { start: override.start ?? weeklySchedule.weekdayStart, end: override.end ?? weeklySchedule.weekdayEnd } : null
   if (date.getDay() === 0) return null
-  return date.getDay() === 6
+  const regularSchedule = date.getDay() === 6
     ? { start: weeklySchedule.saturdayStart, end: weeklySchedule.saturdayEnd }
+    : date.getDay() === 2 || date.getDay() === 4
+    ? { start: weeklySchedule.weekdayMorningStart, end: weeklySchedule.weekdayMorningEnd }
     : { start: weeklySchedule.weekdayStart, end: weeklySchedule.weekdayEnd }
+  if (override) return override.enabled ? { start: override.start ?? regularSchedule.start, end: override.end ?? regularSchedule.end } : null
+  return regularSchedule
 }
 
 export function formatTimeLabel(hour: number, minute: number) {

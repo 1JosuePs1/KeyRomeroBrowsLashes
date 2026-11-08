@@ -10,4 +10,16 @@
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
