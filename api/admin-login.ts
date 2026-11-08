@@ -1,4 +1,4 @@
-import { clearAdminCookie, createAdminCookie, verifyPassword } from './auth'
+import { clearAdminCookie, createAdminCookie, verifyPassword } from './auth.js'
 import { neon } from '@neondatabase/serverless'
 
 export const config = { runtime: 'nodejs' }

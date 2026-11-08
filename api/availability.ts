@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless'
-import { isAdminRequest } from './auth'
+import { isAdminRequest } from './auth.js'
 
 export const config = { runtime: 'nodejs' }
 

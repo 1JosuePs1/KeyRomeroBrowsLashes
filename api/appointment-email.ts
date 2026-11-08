@@ -1,4 +1,4 @@
-import { categories, formatColones, formatDuration, weeklySchedule } from '../src/config/business'
+import { categories, formatColones, formatDuration, weeklySchedule } from '../src/config/business.js'
 
 type AppointmentEmailData = {
   name: string

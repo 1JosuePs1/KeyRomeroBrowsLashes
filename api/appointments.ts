@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless'
-import { isAdminRequest } from './auth'
-import { renderAppointmentEmail } from './appointment-email'
+import { isAdminRequest } from './auth.js'
+import { renderAppointmentEmail } from './appointment-email.js'
 
 export const config = { runtime: 'nodejs' }
 
