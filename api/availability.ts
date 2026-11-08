@@ -1,6 +1,8 @@
 import { neon } from '@neondatabase/serverless'
 import { isAdminRequest } from './auth'
 
+export const config = { runtime: 'nodejs' }
+
 function getDatabase() {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error('DATABASE_URL is not configured')
@@ -33,7 +35,7 @@ export default async function handler(request: Request) {
       })))
     }
 
-    if (!await isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
+    if (!isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
     if (request.method !== 'PUT') return new Response('Method not allowed', { status: 405 })
     const body = await request.json() as { date?: string; enabled?: boolean; start?: number; end?: number; blockedTimes?: string[] }
     if (!body.date || typeof body.enabled !== 'boolean') return Response.json({ error: 'Solicitud inválida' }, { status: 400 })

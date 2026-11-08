@@ -1,3 +1,5 @@
+import { createHash, createHmac, timingSafeEqual } from 'crypto'
+
 const cookieName = 'keylin_admin_session'
 
 function getSecret() {
@@ -6,34 +8,30 @@ function getSecret() {
   return secret
 }
 
-async function digest(value: string) {
-  const bytes = new TextEncoder().encode(value)
-  const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('')
+function hash(value: string) {
+  return createHash('sha256').update(value, 'utf8').digest()
 }
 
-async function sign(value: string) {
-  const key = await globalThis.crypto.subtle.importKey('raw', new TextEncoder().encode(getSecret()), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  const signature = await globalThis.crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
-  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join('')
+function sign(value: string) {
+  return createHmac('sha256', getSecret()).update(value, 'utf8').digest('hex')
 }
 
-export async function verifyPassword(password: string, configuredPassword: string) {
-  const received = await digest(password)
-  const expected = await digest(configuredPassword)
-  return received === expected
+export function verifyPassword(password: string, configuredPassword: string) {
+  const received = hash(password)
+  const expected = Buffer.from(configuredPassword, 'base64')
+  return received.length === expected.length && timingSafeEqual(received, expected)
 }
 
-export async function createAdminCookie() {
+export function createAdminCookie() {
   const value = `admin.${Date.now() + 8 * 60 * 60 * 1000}`
-  return `${cookieName}=${value}.${await sign(value)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`
+  return `${cookieName}=${value}.${sign(value)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=28800`
 }
 
 export function clearAdminCookie() {
   return `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
 }
 
-export async function isAdminRequest(request: Request) {
+export function isAdminRequest(request: Request) {
   const cookie = request.headers.get('cookie')?.split(';').map((item) => item.trim()).find((item) => item.startsWith(`${cookieName}=`))
   const token = cookie?.slice(cookieName.length + 1)
   if (!token) return false
@@ -41,5 +39,7 @@ export async function isAdminRequest(request: Request) {
   const value = separator > 0 ? token.slice(0, separator) : ''
   const signature = separator > 0 ? token.slice(separator + 1) : ''
   if (!value || !signature || Number(value.split('.')[1]) < Date.now()) return false
-  return signature === await sign(value)
+  const received = Buffer.from(signature)
+  const expected = Buffer.from(sign(value))
+  return received.length === expected.length && timingSafeEqual(received, expected)
 }
