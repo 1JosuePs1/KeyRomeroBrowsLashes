@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
+import type { IncomingMessage } from 'node:http'
 
 const cookieName = 'keylin_admin_session'
 
@@ -31,8 +32,15 @@ export function clearAdminCookie() {
   return `${cookieName}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`
 }
 
-export function isAdminRequest(request: Request) {
-  const cookie = request.headers.get('cookie')?.split(';').map((item) => item.trim()).find((item) => item.startsWith(`${cookieName}=`))
+export function isAdminRequest(request: Request | IncomingMessage) {
+  let cookieHeader: string | undefined
+  if (typeof (request.headers as Headers).get === 'function') {
+    cookieHeader = (request.headers as Headers).get('cookie') ?? undefined
+  } else {
+    const value = (request.headers as IncomingMessage['headers']).cookie
+    cookieHeader = Array.isArray(value) ? value[0] : value
+  }
+  const cookie = cookieHeader?.split(';').map((item: string) => item.trim()).find((item: string) => item.startsWith(`${cookieName}=`))
   const token = cookie?.slice(cookieName.length + 1)
   if (!token) return false
   const separator = token.lastIndexOf('.')

@@ -1,6 +1,7 @@
 import { neon } from '@neondatabase/serverless'
 import { isAdminRequest } from './auth.js'
 import { renderAppointmentEmail } from './appointment-email.js'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const config = { runtime: 'nodejs' }
 
@@ -59,23 +60,42 @@ async function sendEmail(apiKey: string, to: string, subject: string, html: stri
   if (!response.ok) console.error('Resend email error', response.status, await response.text())
 }
 
-export default async function handler(request: Request) {
+function readBody(request: IncomingMessage) {
+  return new Promise<Record<string, unknown> | null>((resolve, reject) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk) => { body += chunk })
+    request.on('end', () => {
+      try { resolve(JSON.parse(body) as Record<string, unknown>) } catch { resolve(null) }
+    })
+    request.on('error', reject)
+  })
+}
+
+function sendJson(response: ServerResponse, status: number, body: unknown) {
+  response.writeHead(status, { 'Content-Type': 'application/json' })
+  response.end(JSON.stringify(body))
+}
+
+export default async function handler(request: IncomingMessage, response: ServerResponse) {
   try {
     const sql = getDatabase()
 
     if (request.method === 'GET') {
-      if (!isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
+      if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
       const rows = await sql`SELECT id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url, status FROM appointments ORDER BY created_at DESC`
-      return Response.json({
+      sendJson(response, 200, {
         appointments: rows.filter((row) => row.status !== 'archived').map(toAppointment),
         archivedAppointments: rows.filter((row) => row.status === 'archived').map(toAppointment),
       })
+      return
     }
 
     if (request.method === 'POST') {
-      const body = await request.json() as Partial<AppointmentBody>
-      if (!body.id || !body.name || !body.phone || !body.email || !body.date || !body.time || !body.services?.length || !body.receiptName) {
-        return Response.json({ error: 'Faltan datos obligatorios' }, { status: 400 })
+      const body = await readBody(request) as Partial<AppointmentBody> | null
+      if (!body?.id || !body.name || !body.phone || !body.email || !body.date || !body.time || !body.services?.length || !body.receiptName) {
+        sendJson(response, 400, { error: 'Faltan datos obligatorios' })
+        return
       }
 
       let rows
@@ -87,7 +107,8 @@ export default async function handler(request: Request) {
         `
       } catch (error) {
         if (error instanceof Error && (error.message.includes('appointments_date_time_key') || error.message.includes('date_time_key'))) {
-          return Response.json({ error: 'Ese horario ya está reservado' }, { status: 409 })
+          sendJson(response, 409, { error: 'Ese horario ya está reservado' })
+          return
         }
         throw error
       }
@@ -111,20 +132,23 @@ export default async function handler(request: Request) {
       } else {
         console.error('RESEND_API_KEY is not configured; appointment email notifications were skipped')
       }
-      return Response.json(appointment, { status: 201 })
+      sendJson(response, 201, appointment)
+      return
     }
 
     if (request.method === 'PATCH') {
-      if (!isAdminRequest(request)) return Response.json({ error: 'No autorizado' }, { status: 401 })
-      const body = await request.json() as { id?: string; status?: string }
-      if (!body.id || !['pending', 'archived'].includes(body.status ?? '')) return Response.json({ error: 'Solicitud inválida' }, { status: 400 })
+      if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
+      const body = await readBody(request) as { id?: string; status?: string } | null
+      if (!body?.id || !['pending', 'archived'].includes(body.status ?? '')) { sendJson(response, 400, { error: 'Solicitud inválida' }); return }
       await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`
-      return Response.json({ updated: true })
+      sendJson(response, 200, { updated: true })
+      return
     }
 
-    return new Response('Method not allowed', { status: 405 })
+    response.writeHead(405)
+    response.end('Method not allowed')
   } catch (error) {
     console.error('Appointments API error', error)
-    return Response.json({ error: 'No se pudo procesar la solicitud' }, { status: 500 })
+    sendJson(response, 500, { error: 'No se pudo procesar la solicitud' })
   }
 }

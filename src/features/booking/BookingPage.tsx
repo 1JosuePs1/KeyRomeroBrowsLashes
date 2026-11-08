@@ -19,6 +19,13 @@ function getAvailableTimes(date: Date, overrides: ReturnType<typeof readDayOverr
   const schedule = getScheduleForDate(date, overrides)
   if (!schedule) return []
   const blockedTimes = getBlockedTimes(date, overrides)
+  const customTimes = overrides.find((item) => item.date === date.toISOString().slice(0, 10))?.availableTimes ?? []
+  if (customTimes.length) {
+    return customTimes
+      .filter((time) => !blockedTimes.includes(time))
+      .sort()
+      .map((time) => formatTimeLabel(Number(time.slice(0, 2)), Number(time.slice(3))))
+  }
   const appointmentInterval = weeklySchedule.appointmentIntervalMin
   const maxAppointments = date.getDay() === 6 ? weeklySchedule.saturdayMaxAppointments : weeklySchedule.maxAppointments
   const { start, end } = schedule

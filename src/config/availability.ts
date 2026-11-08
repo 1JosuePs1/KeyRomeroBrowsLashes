@@ -6,6 +6,8 @@ export type DayOverride = {
   start?: number
   end?: number
   blockedTimes?: string[]
+  availableTimes?: string[]
+  slotDurations?: Record<string, number>
 }
 
 const storageKey = 'keylin-day-overrides'
