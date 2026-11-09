@@ -2,8 +2,10 @@
 @media(max-width:1000px){.gallery{grid-template-columns:repeat(3,minmax(0,1fr))!important}}@media(max-width:800px){.gallery{grid-template-columns:repeat(2,minmax(0,1fr))!important}}@media(max-width:520px){.gallery{grid-template-columns:1fr!important}.portraitPhoto,.squarePhoto{aspect-ratio:4 / 5!important}}
 .brand img{height:250px}@media(max-width:520px){.brand{height:48px;width:210px}.brand img{height:210px;width:210px}}
 .whatsapp{align-items:center;display:flex;justify-content:center}.whatsapp svg{fill:currentColor;height:25px;width:25px}.socialLinks{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}.socialLinks a{align-items:center;border:1px solid #6b5748;border-radius:999px;color:#e5c28e;display:inline-flex;font-size:13px;gap:8px;padding:10px 15px;text-decoration:none}.socialLinks svg{fill:none;height:18px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.8;width:18px}.socialLinks svg path{fill:currentColor;stroke:none}.socialLinks svg circle:last-child{fill:currentColor;stroke:none}.socialLinks .iconFill{fill:currentColor}
-.gallery{display:flex;flex-wrap:wrap;gap:28px;justify-content:center}.gallery figure{flex:0 1 250px;width:250px}
-@media(max-width:520px){.gallery figure{flex-basis:100%;width:100%}}
+.gallery{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px;align-items:start}.gallery figure{width:auto}
+@media(max-width:1000px){.gallery{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:800px){.gallery{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.gallery figure:nth-child(n){margin-top:0}.gallery figcaption{bottom:10px;left:10px;max-width:calc(100% - 20px);overflow:hidden;padding:7px 10px;text-overflow:ellipsis;white-space:nowrap}}
+@media(max-width:520px){.section{padding-left:24px;padding-right:24px}.gallery{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px}.portraitPhoto,.squarePhoto{aspect-ratio:4 / 5!important}.gallery figcaption{font-size:11px}}
 .hero h1,.sectionTitle,.serviceCard h3,.reviewGrid p,.footer h2{font-family:'Playfair Display',Georgia,serif}
 .goldButton,.outlineButton,.darkButton{align-items:center;min-height:50px;padding:13px 22px;white-space:nowrap}
 .reviewSlider{display:flex;width:100%}.reviewGrid{cursor:grab;touch-action:pan-y}.reviewGrid:active{cursor:grabbing}

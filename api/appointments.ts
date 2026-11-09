@@ -20,6 +20,49 @@ type AppointmentBody = {
   receiptDataUrl?: string
 }
 
+function timeKey(value: string) {
+  const direct = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value)
+  if (direct) return value
+  const label = /^(\d{1,2}):([0-5]\d)\s*([ap])\.\s*m\.$/i.exec(value)
+  if (!label) return value
+  let hour = Number(label[1])
+  if (label[3].toLowerCase() === 'p' && hour < 12) hour += 12
+  if (label[3].toLowerCase() === 'a' && hour === 12) hour = 0
+  return `${hour.toString().padStart(2, '0')}:${label[2]}`
+}
+
+async function ensureAvailabilityTable(sql: ReturnType<typeof getDatabase>) {
+  await sql`CREATE TABLE IF NOT EXISTS availability_overrides (
+    date TEXT PRIMARY KEY,
+    enabled BOOLEAN NOT NULL,
+    start_minutes INTEGER,
+    end_minutes INTEGER,
+    blocked_times TEXT[] NOT NULL DEFAULT '{}',
+    available_times TEXT[] NOT NULL DEFAULT '{}',
+    slot_durations JSONB NOT NULL DEFAULT '{}'::jsonb
+  )`
+  await sql`ALTER TABLE availability_overrides ADD COLUMN IF NOT EXISTS available_times TEXT[] NOT NULL DEFAULT '{}'`
+  await sql`ALTER TABLE availability_overrides ADD COLUMN IF NOT EXISTS slot_durations JSONB NOT NULL DEFAULT '{}'::jsonb`
+}
+
+async function setSlotBlocked(sql: ReturnType<typeof getDatabase>, date: string, time: string, blocked: boolean) {
+  await ensureAvailabilityTable(sql)
+  const key = timeKey(time)
+  const rows = await sql`SELECT blocked_times FROM availability_overrides WHERE date = ${date}` as Array<{ blocked_times?: string[] }>
+  const current = rows[0]?.blocked_times ?? []
+  const blockedTimes = blocked
+    ? [...new Set([...current, key])]
+    : current.filter((item) => item !== key)
+  if (rows.length) {
+    await sql`UPDATE availability_overrides SET blocked_times = ${blockedTimes} WHERE date = ${date}`
+  } else {
+    await sql`
+      INSERT INTO availability_overrides (date, enabled, blocked_times)
+      VALUES (${date}, true, ${blockedTimes})
+    `
+  }
+}
+
 function getDatabase() {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error('DATABASE_URL is not configured')
@@ -114,6 +157,7 @@ export default async function handler(request: IncomingMessage, response: Server
       }
 
       const appointment = toAppointment(rows[0] as Record<string, unknown>)
+      await setSlotBlocked(sql, body.date, body.time, true)
       const resendKey = process.env.RESEND_API_KEY
       if (resendKey) {
         const emailData = {
@@ -140,7 +184,11 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
       const body = await readBody(request) as { id?: string; status?: string } | null
       if (!body?.id || !['pending', 'archived'].includes(body.status ?? '')) { sendJson(response, 400, { error: 'Solicitud inválida' }); return }
+      const currentRows = await sql`SELECT date::text, time FROM appointments WHERE id = ${body.id} LIMIT 1`
+      if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
       await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`
+      const current = currentRows[0] as { date: string; time: string }
+      await setSlotBlocked(sql, current.date, current.time, body.status === 'pending')
       sendJson(response, 200, { updated: true })
       return
     }
@@ -149,6 +197,8 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
       const body = await readBody(request) as { id?: string; date?: string; time?: string } | null
       if (!body?.id || !body.date || !body.time) { sendJson(response, 400, { error: 'Fecha y hora son obligatorias' }); return }
+      const currentRows = await sql`SELECT date::text, time FROM appointments WHERE id = ${body.id} LIMIT 1`
+      if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
       const conflicts = await sql`
         SELECT id FROM appointments
         WHERE date = ${body.date} AND time = ${body.time} AND id <> ${body.id} AND status = 'pending'
@@ -161,6 +211,9 @@ export default async function handler(request: IncomingMessage, response: Server
         RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url
       `
       if (!rows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
+      const current = currentRows[0] as { date: string; time: string }
+      await setSlotBlocked(sql, current.date, current.time, false)
+      await setSlotBlocked(sql, body.date, body.time, true)
       sendJson(response, 200, toAppointment(rows[0] as Record<string, unknown>))
       return
     }
@@ -169,7 +222,12 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
       const body = await readBody(request) as { id?: string } | null
       if (!body?.id) { sendJson(response, 400, { error: 'La cita es obligatoria' }); return }
+      const currentRows = await sql`SELECT date::text, time FROM appointments WHERE id = ${body.id} LIMIT 1`
       const deleted = await sql`DELETE FROM appointments WHERE id = ${body.id} RETURNING id`
+      if (deleted.length && currentRows.length) {
+        const current = currentRows[0] as { date: string; time: string }
+        await setSlotBlocked(sql, current.date, current.time, false)
+      }
       sendJson(response, 200, { deleted: deleted.length > 0 })
       return
     }

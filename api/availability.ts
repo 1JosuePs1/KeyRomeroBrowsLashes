@@ -43,20 +43,42 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body))
 }
 
+function timeKey(value: string) {
+  const direct = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value)
+  if (direct) return value
+  const label = /^(\d{1,2}):([0-5]\d)\s*([ap])\.\s*m\.$/i.exec(value)
+  if (!label) return value
+  let hour = Number(label[1])
+  if (label[3].toLowerCase() === 'p' && hour < 12) hour += 12
+  if (label[3].toLowerCase() === 'a' && hour === 12) hour = 0
+  return `${hour.toString().padStart(2, '0')}:${label[2]}`
+}
+
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
   try {
     const sql = await ensureTable()
     if (request.method === 'GET') {
       const rows = await sql`SELECT date, enabled, start_minutes, end_minutes, blocked_times, available_times, slot_durations FROM availability_overrides ORDER BY date`
-      sendJson(response, 200, rows.map((row) => ({
-        date: row.date,
-        enabled: row.enabled,
-        start: row.start_minutes ?? undefined,
-        end: row.end_minutes ?? undefined,
-        blockedTimes: row.blocked_times ?? [],
-        availableTimes: row.available_times ?? [],
-        slotDurations: row.slot_durations ?? {},
-      })))
+      const appointments = await sql`SELECT date::text, time FROM appointments WHERE status = 'pending'`
+      const bookedByDate = new Map<string, string[]>()
+      appointments.forEach((appointment) => {
+        const date = String(appointment.date)
+        const times = bookedByDate.get(date) ?? []
+        bookedByDate.set(date, [...times, timeKey(String(appointment.time))])
+      })
+      const dates = new Set([...rows.map((row) => String(row.date)), ...bookedByDate.keys()])
+      sendJson(response, 200, [...dates].map((date) => {
+        const row = rows.find((item) => String(item.date) === date)
+        return {
+          date,
+          enabled: row?.enabled ?? true,
+          start: row?.start_minutes ?? undefined,
+          end: row?.end_minutes ?? undefined,
+          blockedTimes: [...new Set([...(row?.blocked_times ?? []), ...(bookedByDate.get(date) ?? [])])],
+          availableTimes: row?.available_times ?? [],
+          slotDurations: row?.slot_durations ?? {},
+        }
+      }))
       return
     }
 
