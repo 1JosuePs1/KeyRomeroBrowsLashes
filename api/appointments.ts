@@ -145,6 +145,35 @@ export default async function handler(request: IncomingMessage, response: Server
       return
     }
 
+    if (request.method === 'PUT') {
+      if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
+      const body = await readBody(request) as { id?: string; date?: string; time?: string } | null
+      if (!body?.id || !body.date || !body.time) { sendJson(response, 400, { error: 'Fecha y hora son obligatorias' }); return }
+      const conflicts = await sql`
+        SELECT id FROM appointments
+        WHERE date = ${body.date} AND time = ${body.time} AND id <> ${body.id} AND status = 'pending'
+        LIMIT 1
+      `
+      if (conflicts.length) { sendJson(response, 409, { error: 'La hora ya está ocupada' }); return }
+      const rows = await sql`
+        UPDATE appointments SET date = ${body.date}, time = ${body.time}
+        WHERE id = ${body.id}
+        RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url
+      `
+      if (!rows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
+      sendJson(response, 200, toAppointment(rows[0] as Record<string, unknown>))
+      return
+    }
+
+    if (request.method === 'DELETE') {
+      if (!isAdminRequest(request)) { sendJson(response, 401, { error: 'No autorizado' }); return }
+      const body = await readBody(request) as { id?: string } | null
+      if (!body?.id) { sendJson(response, 400, { error: 'La cita es obligatoria' }); return }
+      const deleted = await sql`DELETE FROM appointments WHERE id = ${body.id} RETURNING id`
+      sendJson(response, 200, { deleted: deleted.length > 0 })
+      return
+    }
+
     response.writeHead(405)
     response.end('Method not allowed')
   } catch (error) {

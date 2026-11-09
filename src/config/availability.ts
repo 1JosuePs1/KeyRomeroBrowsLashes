@@ -34,8 +34,10 @@ export function getScheduleForDate(date: Date, overrides: DayOverride[]) {
   if (date.getDay() === 0) return null
   const regularSchedule = date.getDay() === 6
     ? { start: weeklySchedule.saturdayStart, end: weeklySchedule.saturdayEnd }
-    : date.getDay() === 2 || date.getDay() === 4
+    : date.getDay() === 2
     ? { start: weeklySchedule.weekdayMorningStart, end: weeklySchedule.weekdayMorningEnd }
+    : date.getDay() === 4
+    ? { start: weeklySchedule.thursdayStart, end: weeklySchedule.thursdayEnd }
     : { start: weeklySchedule.weekdayStart, end: weeklySchedule.weekdayEnd }
   if (override) return override.enabled ? { start: override.start ?? regularSchedule.start, end: override.end ?? regularSchedule.end } : null
   return regularSchedule

@@ -82,17 +82,20 @@ export const reviews = [
 ]
 
 export const weeklySchedule = {
-  weekdays: 'Lunes, miércoles y viernes · 12:30 p. m. – 7:00 p. m.',
-  weekdaysMorning: 'Martes y jueves · 7:00 a. m. – 12:30 p. m.',
+  weekdays: 'Lunes, miércoles y viernes · 12:30 p. m. – 6:30 p. m.',
+  weekdaysMorning: 'Martes · 7:00 a. m. – 12:30 p. m.',
+  thursday: 'Jueves · 12:30 p. m. – 6:30 p. m.',
   saturday: '7:00 a. m. – 12:30 p. m.',
   sunday: 'Cerrado',
   maxAppointments: 4,
   saturdayMaxAppointments: 4,
   appointmentIntervalMin: 90,
   weekdayStart: 12 * 60 + 30,
-  weekdayEnd: 19 * 60,
+  weekdayEnd: 18 * 60 + 30,
   weekdayMorningStart: 7 * 60,
   weekdayMorningEnd: 12 * 60 + 30,
+  thursdayStart: 12 * 60 + 30,
+  thursdayEnd: 18 * 60 + 30,
   saturdayStart: 7 * 60,
   saturdayEnd: 12 * 60 + 30,
 }

@@ -26,6 +26,10 @@ export default function AdminPage() {
   const [appointmentTab, setAppointmentTab] = useState<'pending' | 'archived'>('pending')
   const [search, setSearch] = useState('')
   const [notice, setNotice] = useState('')
+  const [period, setPeriod] = useState('all')
+  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null)
+  const [editDate, setEditDate] = useState('')
+  const [editTime, setEditTime] = useState('')
 
   useEffect(() => {
     if (!authenticated) return
@@ -77,21 +81,33 @@ export default function AdminPage() {
     else if (regular) setEnd(timeValue(regular.end))
   }
   const activeAppointments = [...appointments, ...archivedAppointments]
-  const totalSales = activeAppointments.reduce((sum, item) => sum + item.total, 0)
-  const totalDeposits = activeAppointments.reduce((sum, item) => sum + item.deposit, 0)
-  const averageTicket = activeAppointments.length ? Math.round(totalSales / activeAppointments.length) : 0
-  const serviceCounts = activeAppointments.flatMap((item) => item.services).reduce<Record<string, number>>((counts, service) => {
+  const filteredActiveAppointments = activeAppointments.filter((item) => {
+    if (period === 'all') return true
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth() - Number(period) + 1, 1)
+    return new Date(`${item.date}T12:00:00`) >= monthStart
+  })
+  const totalSales = filteredActiveAppointments.reduce((sum, item) => sum + item.total, 0)
+  const totalDeposits = filteredActiveAppointments.reduce((sum, item) => sum + item.deposit, 0)
+  const averageTicket = filteredActiveAppointments.length ? Math.round(totalSales / filteredActiveAppointments.length) : 0
+  const serviceCounts = filteredActiveAppointments.flatMap((item) => item.services).reduce<Record<string, number>>((counts, service) => {
     counts[service] = (counts[service] ?? 0) + 1
     return counts
   }, {})
   const topServices = Object.entries(serviceCounts).sort(([, a], [, b]) => b - a).slice(0, 5)
   const recentDays = (() => {
     const counts = new Map<string, number>()
-    activeAppointments.forEach((item) => counts.set(item.date, (counts.get(item.date) ?? 0) + 1))
+    filteredActiveAppointments.forEach((item) => counts.set(item.date, (counts.get(item.date) ?? 0) + 1))
     return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-7)
   })()
   const sourceAppointments = appointmentTab === 'pending' ? appointments : archivedAppointments
-  const visibleAppointments = sourceAppointments.filter((item) => `${item.name} ${item.phone} ${item.date} ${item.services.join(' ')}`.toLowerCase().includes(search.toLowerCase()))
+  const visibleAppointments = sourceAppointments.filter((item) => {
+    const matchesSearch = `${item.name} ${item.phone} ${item.date} ${item.services.join(' ')}`.toLowerCase().includes(search.toLowerCase())
+    if (period === 'all') return matchesSearch
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth() - Number(period) + 1, 1)
+    return matchesSearch && new Date(`${item.date}T12:00:00`) >= monthStart
+  })
 
   const saveAvailability = async (nextOverride: DayOverride) => {
     const response = await fetch('/api/availability', {
@@ -110,8 +126,8 @@ export default function AdminPage() {
     const current: DayOverride = {
       date: selectedDate,
       enabled,
-      start: enabled ? Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]) : undefined,
-      end: enabled ? Number(end.split(':')[0]) * 60 + Number(end.split(':')[1]) : undefined,
+      start: enabled ? Number(start.split(':')[0]) * 60 + Number(start.split(':')[1]) : selectedOverride?.start,
+      end: enabled ? Number(end.split(':')[0]) * 60 + Number(end.split(':')[1]) : selectedOverride?.end,
       blockedTimes: selectedOverride?.blockedTimes ?? [],
       availableTimes: selectedCustomSlots,
       slotDurations: selectedOverride?.slotDurations ?? {},
@@ -183,6 +199,39 @@ export default function AdminPage() {
     }
   }
 
+  const editAppointment = async () => {
+    if (!editingAppointment || !editDate || !editTime) return
+    const response = await fetch('/api/appointments', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editingAppointment.id, date: editDate, time: editTime }),
+    })
+    if (!response.ok) { setNotice(response.status === 409 ? 'Esa hora ya está ocupada.' : 'No se pudo editar la cita.'); return }
+    const updated = await response.json() as Appointment
+    setAppointments((items) => items.map((item) => item.id === updated.id ? updated : item))
+    setArchivedAppointments((items) => items.map((item) => item.id === updated.id ? updated : item))
+    setEditingAppointment(null)
+    setNotice(`Cita actualizada: ${editDate} a las ${editTime}.`)
+  }
+
+  const deleteAppointment = async (appointment: Appointment) => {
+    if (!window.confirm(`¿Eliminar la cita de ${appointment.name}? Esta acción no se puede deshacer.`)) return
+    const response = await fetch('/api/appointments', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: appointment.id }),
+    })
+    if (!response.ok) { setNotice('No se pudo eliminar la cita.'); return }
+    setAppointments((items) => items.filter((item) => item.id !== appointment.id))
+    setArchivedAppointments((items) => items.filter((item) => item.id !== appointment.id))
+    setNotice(`Cita eliminada: ${appointment.date} a las ${appointment.time}.`)
+  }
+
+  const whatsappUrl = (appointment: Appointment) => {
+    const message = `Hola ${appointment.name}, soy Keylin. Confirmo tu cita para el ${new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')} a las ${appointment.time}. Servicio: ${appointment.services.join(', ')}. Total: ${formatColones(appointment.total)}. Adelanto: ${formatColones(appointment.deposit)}. ¡Te esperamos!`
+    return `https://wa.me/${appointment.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
+  }
+
   if (!authenticated) {
     return <main className="admin-page"><section className="admin-login"><span className="admin-logo">KR</span><p className="admin-eyebrow">Acceso privado</p><h1>Panel de Keylin</h1><p className="admin-muted">Ingresa para administrar disponibilidad y solicitudes.</p><input type="password" placeholder="Contraseña" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void login() }} /><button disabled={loginBusy || !password} onClick={() => void login()}>{loginBusy ? 'Verificando…' : 'Entrar'}</button>{loginError && <p className="admin-error">{loginError}</p>}<small>Acceso protegido</small></section></main>
   }
@@ -196,13 +245,13 @@ export default function AdminPage() {
 
       {tab === 'resumen' && <div className="admin-dashboard">
         <div className="admin-metrics"><article><span>Ventas</span><strong>{formatColones(totalSales)}</strong><small>{activeAppointments.length} citas registradas</small></article><article><span>Adelantos</span><strong>{formatColones(totalDeposits)}</strong><small>Ingresos confirmados</small></article><article><span>Ticket promedio</span><strong>{formatColones(averageTicket)}</strong><small>Por solicitud</small></article><article><span>Pendientes</span><strong>{appointments.length}</strong><small>Por confirmar</small></article></div>
-        <div className="admin-chart-grid"><div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Actividad</p><h2>Citas por día</h2></div><span className="chart-caption">Últimos registros</span></div>{recentDays.length ? <div className="bar-chart">{recentDays.map(([date, count]) => <div className="bar-column" key={date}><strong style={{ height: `${Math.max(12, count * 30)}px` }}>{count}</strong><span>{new Date(`${date}T12:00:00`).toLocaleDateString('es-CR', { weekday: 'short' })}</span></div>)}</div> : <p className="admin-muted">Aún no hay citas para mostrar.</p>}</div><div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Preferencias</p><h2>Servicios solicitados</h2></div></div>{topServices.length ? <div className="service-bars">{topServices.map(([service, count]) => <div key={service}><div><span>{service}</span><b>{count}</b></div><i><em style={{ width: `${(count / topServices[0][1]) * 100}%` }} /></i></div>)}</div> : <p className="admin-muted">Aún no hay datos para mostrar.</p>}</div></div>
+        <div className="admin-chart-grid"><div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Actividad</p><h2>Citas por día</h2></div><label className="chart-caption">Período<select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="all">Todo</option><option value="1">Este mes</option><option value="3">3 meses</option><option value="12">Este año</option></select></label></div>{recentDays.length ? <div className="bar-chart">{recentDays.map(([date, count]) => <div className="bar-column" key={date}><strong style={{ height: `${Math.max(12, count * 30)}px` }}>{count}</strong><span>{new Date(`${date}T12:00:00`).toLocaleDateString('es-CR', { weekday: 'short' })}</span></div>)}</div> : <p className="admin-muted">Aún no hay citas para mostrar.</p>}</div><div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Preferencias</p><h2>Servicios solicitados</h2></div></div>{topServices.length ? <div className="service-bars">{topServices.map(([service, count]) => <div key={service}><div><span>{service}</span><b>{count}</b></div><i><em style={{ width: `${(count / topServices[0][1]) * 100}%` }} /></i></div>)}</div> : <p className="admin-muted">Aún no hay datos para mostrar.</p>}</div></div>
         <div className="admin-card operational"><div className="card-heading"><div><p className="admin-eyebrow">Estado</p><h2>Resumen operativo</h2></div></div><div className="operational-grid"><p><span>Solicitudes activas</span><b>{appointments.length}</b></p><p><span>Archivadas</span><b>{archivedAppointments.length}</b></p><p><span>Días personalizados</span><b>{overrides.length}</b></p><p><span>Horas bloqueadas</span><b>{overrides.reduce((sum, item) => sum + (item.blockedTimes?.length ?? 0), 0)}</b></p></div></div>
       </div>}
 
       {tab === 'horarios' && <div className="admin-schedule-layout"><div className="admin-card"><p className="admin-eyebrow">Paso 1</p><h2>Elige el día</h2><p className="admin-muted">Selecciona el día que quieres modificar. Luego decide si recibes citas y en qué horario.</p><label>Día<input type="date" value={selectedDate} onChange={(event) => selectDate(event.target.value)} /></label><label className="admin-switch"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Aceptar citas este día</label>{enabled && <div className="admin-time-row"><label>Primera hora<input type="time" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>Última hora<input type="time" value={end} onChange={(event) => setEnd(event.target.value)} /></label></div>}<button className="admin-primary" disabled={!selectedDate} onClick={() => void saveException()}>Guardar cambios del día</button></div><div className="admin-card"><p className="admin-eyebrow">Paso 2 · Opcional</p><h2>Agregar una hora especial</h2><p className="admin-muted">Úsalo si quieres abrir una cita fuera del horario normal o con otra duración.</p><div className="admin-time-row"><label>Hora de la cita<input type="time" value={slotTime} onChange={(event) => setSlotTime(event.target.value)} /></label><label>Duración<select value={slotDuration} onChange={(event) => setSlotDuration(event.target.value)}><option value="20">20 minutos</option><option value="30">30 minutos</option><option value="60">1 hora</option><option value="90">90 minutos</option><option value="120">2 horas</option></select></label></div><button className="admin-primary" disabled={!selectedDate} onClick={() => void addCustomSlot()}>Agregar esta hora</button><div className="slot-list">{selectedCustomSlots.map((time) => <div key={time}><span>{formatTimeLabel(Number(time.slice(0, 2)), Number(time.slice(3)))} <small>{selectedOverride?.slotDurations?.[time] ?? 90} min</small></span><button onClick={() => void removeCustomSlot(time)}>Cerrar esta hora</button></div>)}{!selectedCustomSlots.length && <p className="admin-muted">Todavía no hay horas especiales.</p>}</div></div><div className="admin-card"><p className="admin-eyebrow">Paso 3 · Opcional</p><h2>Cerrar o reabrir una hora</h2><p className="admin-muted">Toca una hora para cambiar su disponibilidad. Rojo significa que está cerrada.</p><div className="slot-grid">{[...(selectedSchedule ? Array.from({ length: Math.ceil((selectedSchedule.end - selectedSchedule.start) / weeklySchedule.appointmentIntervalMin) }, (_, index) => timeValue(selectedSchedule.start + index * weeklySchedule.appointmentIntervalMin)) : []), ...selectedCustomSlots].filter((time, index, list) => list.indexOf(time) === index).map((time) => <button key={time} className={selectedOverride?.blockedTimes?.includes(time) ? 'blocked' : ''} onClick={() => void toggleBlocked(time)}>{selectedOverride?.blockedTimes?.includes(time) ? `Reabrir ${time}` : `Cerrar ${time}`}</button>)}</div>{!selectedDate && <p className="admin-muted">Primero selecciona un día arriba.</p>}</div></div>}
 
-      {tab === 'citas' && <div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Solicitudes</p><h2>{appointmentTab === 'pending' ? 'Citas pendientes' : 'Citas archivadas'}</h2></div><input className="admin-search" placeholder="Buscar cliente, fecha o servicio" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="admin-tabs"><button className={appointmentTab === 'pending' ? 'active' : ''} onClick={() => setAppointmentTab('pending')}>Pendientes</button><button className={appointmentTab === 'archived' ? 'active' : ''} onClick={() => setAppointmentTab('archived')}>Archivadas</button></div>{visibleAppointments.length ? visibleAppointments.map((appointment) => <article className="admin-appointment" key={appointment.id}><div><h3>{appointment.name}</h3><p>{new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')} · {appointment.time}</p><p>{appointment.services.join(', ')}</p><p>{formatColones(appointment.total)} · Adelanto {formatColones(appointment.deposit)}</p><a className="admin-whatsapp" href={`https://wa.me/${appointment.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer">WhatsApp</a><button className="admin-secondary" onClick={() => void archiveAppointment(appointment, appointmentTab === 'pending' ? 'archived' : 'pending')}>{appointmentTab === 'pending' ? 'Archivar' : 'Restaurar'}</button></div>{appointment.receiptDataUrl && <img className="admin-receipt" src={appointment.receiptDataUrl} alt="Comprobante de adelanto" />}</article>) : <p className="admin-muted">No hay solicitudes que coincidan.</p>}</div>}
+      {tab === 'citas' && <div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Agenda</p><h2>{appointmentTab === 'pending' ? 'Citas pendientes' : 'Citas archivadas'}</h2></div><div className="admin-filters"><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="all">Todo el historial</option><option value="1">Este mes</option><option value="3">Últimos 3 meses</option><option value="12">Último año</option></select><input className="admin-search" placeholder="Buscar clienta o servicio" value={search} onChange={(event) => setSearch(event.target.value)} /></div></div><div className="admin-tabs"><button className={appointmentTab === 'pending' ? 'active' : ''} onClick={() => setAppointmentTab('pending')}>Pendientes</button><button className={appointmentTab === 'archived' ? 'active' : ''} onClick={() => setAppointmentTab('archived')}>Archivadas</button></div>{visibleAppointments.length ? visibleAppointments.map((appointment) => <article className="admin-appointment" key={appointment.id}><div><h3>{appointment.name}</h3><p>{new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')} · {appointment.time}</p><p>{appointment.services.join(', ')}</p><p>{formatColones(appointment.total)} · Adelanto {formatColones(appointment.deposit)}</p><a className="admin-whatsapp" href={whatsappUrl(appointment)} target="_blank" rel="noreferrer">Confirmar por WhatsApp</a><button className="admin-secondary" onClick={() => { setEditingAppointment(appointment); setEditDate(appointment.date); setEditTime(appointment.time) }}>Editar fecha y hora</button><button className="admin-secondary danger" onClick={() => void deleteAppointment(appointment)}>Eliminar</button><button className="admin-secondary" onClick={() => void archiveAppointment(appointment, appointmentTab === 'pending' ? 'archived' : 'pending')}>{appointmentTab === 'pending' ? 'Archivar' : 'Restaurar'}</button></div>{appointment.receiptDataUrl && <img className="admin-receipt" src={appointment.receiptDataUrl} alt="Comprobante de adelanto" />}</article>) : <p className="admin-muted">No hay citas que coincidan.</p>}{editingAppointment && <div className="admin-edit-box"><h3>Editar cita de {editingAppointment.name}</h3><div className="admin-time-row"><label>Fecha<input type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} /></label><label>Hora<input type="time" value={editTime} onChange={(event) => setEditTime(event.target.value)} /></label></div><button className="admin-primary" onClick={() => void editAppointment()}>Guardar nueva fecha y hora</button><button className="admin-secondary" onClick={() => setEditingAppointment(null)}>Cancelar</button></div>}</div>}
     </section>
   </main>
 }

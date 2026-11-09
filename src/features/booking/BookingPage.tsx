@@ -20,12 +20,6 @@ function getAvailableTimes(date: Date, overrides: ReturnType<typeof readDayOverr
   if (!schedule) return []
   const blockedTimes = getBlockedTimes(date, overrides)
   const customTimes = overrides.find((item) => item.date === date.toISOString().slice(0, 10))?.availableTimes ?? []
-  if (customTimes.length) {
-    return customTimes
-      .filter((time) => !blockedTimes.includes(time))
-      .sort()
-      .map((time) => formatTimeLabel(Number(time.slice(0, 2)), Number(time.slice(3))))
-  }
   const appointmentInterval = weeklySchedule.appointmentIntervalMin
   const maxAppointments = date.getDay() === 6 ? weeklySchedule.saturdayMaxAppointments : weeklySchedule.maxAppointments
   const { start, end } = schedule
@@ -36,12 +30,17 @@ function getAvailableTimes(date: Date, overrides: ReturnType<typeof readDayOverr
     const slot = formatTimeLabel(hour, minute)
     if (!blockedTimes.includes(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`)) slots.push(slot)
   }
-  return slots
+  const customLabels = customTimes
+    .filter((time) => !blockedTimes.includes(time))
+    .sort()
+    .map((time) => formatTimeLabel(Number(time.slice(0, 2)), Number(time.slice(3))))
+  return [...new Set([...slots, ...customLabels])]
 }
 
 function getHoursForDate(date: Date) {
   if (date.getDay() === 6) return weeklySchedule.saturday
-  if (date.getDay() === 2 || date.getDay() === 4) return weeklySchedule.weekdaysMorning
+  if (date.getDay() === 2) return weeklySchedule.weekdaysMorning
+  if (date.getDay() === 4) return weeklySchedule.thursday
   return weeklySchedule.weekdays
 }
 
