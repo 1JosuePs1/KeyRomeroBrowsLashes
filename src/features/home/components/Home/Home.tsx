@@ -75,7 +75,7 @@ export default function Home() {
     url: 'https://www.keylinbrowslashes.com/',
     telephone: `+${business.whatsappNumber}`,
     email: business.email,
-    image: 'https://www.keylinbrowslashes.com/favicon.svg',
+    image: 'https://www.keylinbrowslashes.com/favicon-512x512.png',
     priceRange: '₡₡',
     address: {
       '@type': 'PostalAddress',
