@@ -5,6 +5,7 @@ export type Service = {
   name: string
   price: number
   durationMin: number
+  deposit?: number
 }
 
 export type Category = {
@@ -44,8 +45,8 @@ export const categories: Category[] = [
       { id: 'retoque-hibridas', name: 'Retoque híbridas', price: 17000, durationMin: 90 },
       { id: 'volumen', name: 'Volumen / mega volumen', price: 22000, durationMin: 90 },
       { id: 'retoque-volumen', name: 'Retoque volumen', price: 20000, durationMin: 90 },
-      { id: 'retiro', name: 'Retiro', price: 1000, durationMin: 30 },
-      { id: 'retiro-otros', name: 'Retiro de otros lugares', price: 2000, durationMin: 30 },
+      { id: 'retiro', name: 'Retiro', price: 1000, durationMin: 30, deposit: 1000 },
+      { id: 'retiro-otros', name: 'Retiro de otros lugares', price: 2000, durationMin: 30, deposit: 2000 },
     ],
   },
   {
