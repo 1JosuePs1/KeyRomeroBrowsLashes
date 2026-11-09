@@ -44,8 +44,8 @@ export const categories: Category[] = [
       { id: 'retoque-hibridas', name: 'Retoque híbridas', price: 17000, durationMin: 90 },
       { id: 'volumen', name: 'Volumen / mega volumen', price: 22000, durationMin: 90 },
       { id: 'retoque-volumen', name: 'Retoque volumen', price: 20000, durationMin: 90 },
-      { id: 'retiro', name: 'Retiro', price: 10000, durationMin: 30 },
-      { id: 'retiro-otros', name: 'Retiro de otros lugares', price: 20000, durationMin: 30 },
+      { id: 'retiro', name: 'Retiro', price: 1000, durationMin: 30 },
+      { id: 'retiro-otros', name: 'Retiro de otros lugares', price: 2000, durationMin: 30 },
     ],
   },
   {
@@ -55,7 +55,6 @@ export const categories: Category[] = [
     services: [
       { id: 'laminado', name: 'Laminado', price: 9000, durationMin: 60 },
       { id: 'henna', name: 'Henna + diseño', price: 12000, durationMin: 60 },
-      { id: 'perfilado', name: 'Diseño + perfilado', price: 5000, durationMin: 60 },
       { id: 'laminado-diseno', name: 'Laminado + diseño', price: 11000, durationMin: 60 },
       { id: 'hilo-pinzas', name: 'Diseño con hilo o pinzas', price: 5000, durationMin: 60 },
       { id: 'labio', name: 'Depilación de labio superior', price: 3000, durationMin: 30 },
