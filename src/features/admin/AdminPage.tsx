@@ -3,6 +3,7 @@ import { formatTimeLabel, getScheduleForDate, type DayOverride } from '../../con
 import type { Appointment } from '../../config/appointments'
 import { formatColones, weeklySchedule } from '../../config/business'
 import '../../styles/admin.css'
+import { normalizePhone } from '../../config/phone'
 
 type AdminTab = 'resumen' | 'citas' | 'horarios'
 
@@ -228,8 +229,15 @@ export default function AdminPage() {
   }
 
   const whatsappUrl = (appointment: Appointment) => {
-    const message = `Hola ${appointment.name}, soy Keylin. Confirmo tu cita para el ${new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')} a las ${appointment.time}. Servicio: ${appointment.services.join(', ')}. Total: ${formatColones(appointment.total)}. Adelanto: ${formatColones(appointment.deposit)}. ¡Te esperamos!`
-    return `https://wa.me/${appointment.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
+  const phone = normalizePhone(appointment.phone) ?? appointment.phone.replace(/\D/g, '')
+  const fecha = new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')
+  const message =
+      `Hola ${appointment.name}, soy Keylin. Confirmo tu cita para el ${fecha}, a las ${appointment.time}. ` +
+      `Servicio: ${appointment.services.join(', ')}. ` +
+      `Total: ${formatColones(appointment.total)}. ` +
+      `Adelanto: ${formatColones(appointment.deposit)}. ¡Te esperamos!`
+
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
   }
 
   if (!authenticated) {
