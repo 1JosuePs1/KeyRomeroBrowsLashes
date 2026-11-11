@@ -11,4 +11,5 @@ export type Appointment = {
   deposit: number
   receiptName: string
   receiptDataUrl?: string
+  status?: 'pending' | 'archived'
 }

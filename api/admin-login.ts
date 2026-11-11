@@ -1,4 +1,4 @@
-import { clearAdminCookie, createAdminCookie, verifyPassword } from './auth.js'
+import { clearAdminCookie, createAdminCookie, isAdminRequest, verifyPassword } from './auth.js'
 import { neon } from '@neondatabase/serverless'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -50,6 +50,16 @@ function sendJson(response: ServerResponse, status: number, body: unknown, heade
 }
 
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
+  if (request.method === 'GET') {
+    let authenticated: boolean
+    try { authenticated = isAdminRequest(request) } catch { authenticated = false }
+    sendJson(response, authenticated ? 200 : 401, { authenticated }, { 'Cache-Control': 'no-store' })
+    return
+  }
+  if (request.method === 'DELETE') {
+    sendJson(response, 200, { authenticated: false }, { 'Set-Cookie': clearAdminCookie() })
+    return
+  }
   if (request.method !== 'POST') {
     response.writeHead(405)
     response.end('Method not allowed')

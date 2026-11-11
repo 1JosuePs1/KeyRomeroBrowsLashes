@@ -83,6 +83,7 @@ function toAppointment(row: Record<string, unknown>) {
     deposit: row.deposit,
     receiptName: row.receipt_name,
     receiptDataUrl: row.receipt_data_url,
+    status: row.status ?? 'pending',
   }
 }
 
@@ -135,11 +136,15 @@ export default async function handler(request: IncomingMessage, response: Server
     }
 
     if (request.method === 'POST') {
-      const body = await readBody(request) as Partial<AppointmentBody> | null
-      if (!body?.id || !body.name || !body.phone || !body.email || !body.date || !body.time || !body.services?.length || !body.receiptName) {
+      const body = await readBody(request) as (Partial<AppointmentBody> & { manual?: boolean }) | null
+      const manual = body?.manual === true && isAdminRequest(request)
+      if (!body?.id || !body.name || !body.date || !body.time || !body.services?.length || (!manual && (!body.phone || !body.email || !body.receiptName))) {
         sendJson(response, 400, { error: 'Faltan datos obligatorios' })
         return
       }
+      const phone = body.phone ?? ''
+      const email = body.email ?? ''
+      const receiptName = body.receiptName ?? 'Cita manual'
 
       const sameDay = await sql`SELECT time FROM appointments WHERE date = ${body.date} AND status IS DISTINCT FROM 'archived'`
       if (sameDay.some((row) => timeKey(String(row.time)) === timeKey(body.time as string))) {
@@ -151,8 +156,8 @@ export default async function handler(request: IncomingMessage, response: Server
       try {
         rows = await sql`
           INSERT INTO appointments (id, created_at, name, phone, email, services, date, time, total, deposit, receipt_name, receipt_data_url)
-          VALUES (${body.id}, ${body.createdAt ?? new Date().toISOString()}, ${body.name}, ${body.phone}, ${body.email}, ${body.services}, ${body.date}, ${body.time}, ${body.total ?? 0}, ${body.deposit ?? 0}, ${body.receiptName}, ${body.receiptDataUrl ?? null})
-          RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url
+          VALUES (${body.id}, ${body.createdAt ?? new Date().toISOString()}, ${body.name}, ${phone}, ${email}, ${body.services}, ${body.date}, ${body.time}, ${body.total ?? 0}, ${body.deposit ?? 0}, ${receiptName}, ${body.receiptDataUrl ?? null})
+          RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url, status
         `
       } catch (error) {
         if (error instanceof Error && (error.message.includes('appointments_date_time_key') || error.message.includes('date_time_key'))) {
@@ -169,10 +174,14 @@ export default async function handler(request: IncomingMessage, response: Server
         console.error('Could not block booked slot', error)
       }
       const resendKey = process.env.RESEND_API_KEY
+      if (manual) {
+        sendJson(response, 201, appointment)
+        return
+      }
       if (resendKey) {
         const emailData = {
           name: body.name,
-          email: body.email,
+          email,
           services: body.services,
           date: body.date,
           time: body.time,
@@ -181,7 +190,7 @@ export default async function handler(request: IncomingMessage, response: Server
         }
         await Promise.allSettled([
           sendEmail(resendKey, process.env.ADMIN_EMAIL || 'keyromero50@gmail.com', `Nueva solicitud de cita - ${body.name}`, renderAppointmentEmail(emailData, true)),
-          sendEmail(resendKey, body.email, 'Recibimos tu solicitud de cita | Keylin Romero', renderAppointmentEmail(emailData, false)),
+          sendEmail(resendKey, email, 'Recibimos tu solicitud de cita | Keylin Romero', renderAppointmentEmail(emailData, false)),
         ])
       } else {
         console.error('RESEND_API_KEY is not configured; appointment email notifications were skipped')
@@ -197,7 +206,7 @@ export default async function handler(request: IncomingMessage, response: Server
       const currentRows = await sql`SELECT date::text, time FROM appointments WHERE id = ${body.id} LIMIT 1`
       if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
       const current = currentRows[0] as { date: string; time: string }
-      if (body.status === 'pending') {
+      if (body.status !== 'archived') {
         const sameDay = await sql`SELECT time FROM appointments WHERE date = ${current.date} AND id <> ${body.id} AND status IS DISTINCT FROM 'archived'`
         if (sameDay.some((row) => timeKey(String(row.time)) === timeKey(current.time))) {
           sendJson(response, 409, { error: 'La hora ya está ocupada' })
@@ -205,7 +214,7 @@ export default async function handler(request: IncomingMessage, response: Server
         }
       }
       await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`
-      await setSlotBlocked(sql, current.date, current.time, body.status === 'pending')
+      await setSlotBlocked(sql, current.date, current.time, body.status !== 'archived')
       sendJson(response, 200, { updated: true })
       return
     }
@@ -225,7 +234,7 @@ export default async function handler(request: IncomingMessage, response: Server
       const rows = await sql`
         UPDATE appointments SET date = ${body.date}, time = ${body.time}
         WHERE id = ${body.id}
-        RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url
+        RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url, status
       `
       if (!rows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
       const current = currentRows[0] as { date: string; time: string }
