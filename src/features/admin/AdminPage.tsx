@@ -4,10 +4,13 @@ import type { Appointment } from '../../config/appointments'
 import { formatColones, weeklySchedule } from '../../config/business'
 import '../../styles/admin.css'
 import { normalizePhone } from '../../config/phone'
+import AgendaCalendar from './AgendaCalendar'
 
-type AdminTab = 'resumen' | 'citas' | 'horarios'
+type AdminTab = 'resumen' | 'agenda' | 'citas' | 'horarios'
 
 const timeValue = (minutes: number) => `${Math.floor(minutes / 60).toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}`
+
+const isPdf = (dataUrl: string) => dataUrl.startsWith('data:application/pdf')
 
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -31,6 +34,19 @@ export default function AdminPage() {
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null)
   const [editDate, setEditDate] = useState('')
   const [editTime, setEditTime] = useState('')
+  const [detailAppointment, setDetailAppointment] = useState<Appointment | null>(null)
+  const [receiptView, setReceiptView] = useState<Appointment | null>(null)
+
+  useEffect(() => {
+    if (!detailAppointment && !receiptView) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (receiptView) setReceiptView(null)
+      else setDetailAppointment(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailAppointment, receiptView])
 
   useEffect(() => {
     if (!authenticated) return
@@ -248,7 +264,7 @@ export default function AdminPage() {
     <header className="admin-header"><a href="/">← Volver al sitio</a><div className="admin-brand"><span>KR</span><small>Panel admin</small></div><button onClick={() => setAuthenticated(false)}>Salir</button></header>
     <section className="admin-shell">
       <div className="admin-heading"><div><p className="admin-eyebrow">Panel de Keylin</p><h1>¿Qué deseas hacer?</h1><p className="admin-muted">Aquí puedes revisar tus citas y abrir o cerrar horarios para tus clientas.</p></div><div className="admin-date-pill">{new Intl.DateTimeFormat('es-CR', { dateStyle: 'full' }).format(new Date())}</div></div>
-      <nav className="admin-nav" aria-label="Secciones del panel">{([['resumen', 'Inicio'], ['citas', `Mis citas (${appointments.length})`], ['horarios', 'Abrir o cerrar horas']] as const).map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</nav>
+      <nav className="admin-nav" aria-label="Secciones del panel">{([['resumen', 'Inicio'], ['agenda', 'Mi agenda'], ['citas', `Mis citas (${appointments.length})`], ['horarios', 'Abrir o cerrar horas']] as const).map(([value, label]) => <button key={value} className={tab === value ? 'active' : ''} onClick={() => setTab(value)}>{label}</button>)}</nav>
       {notice && <p className="admin-notice">{notice}</p>}
 
       {tab === 'resumen' && <div className="admin-dashboard">
@@ -257,9 +273,37 @@ export default function AdminPage() {
         <div className="admin-card operational"><div className="card-heading"><div><p className="admin-eyebrow">Estado</p><h2>Resumen operativo</h2></div></div><div className="operational-grid"><p><span>Solicitudes activas</span><b>{appointments.length}</b></p><p><span>Archivadas</span><b>{archivedAppointments.length}</b></p><p><span>Días personalizados</span><b>{overrides.length}</b></p><p><span>Horas bloqueadas</span><b>{overrides.reduce((sum, item) => sum + (item.blockedTimes?.length ?? 0), 0)}</b></p></div></div>
       </div>}
 
+      {tab === 'agenda' && <div className="admin-card"><p className="admin-eyebrow">Calendario</p><AgendaCalendar appointments={appointments} onSelect={setDetailAppointment} /></div>}
+
       {tab === 'horarios' && <div className="admin-schedule-layout"><div className="admin-card"><p className="admin-eyebrow">Paso 1</p><h2>Elige el día</h2><p className="admin-muted">Selecciona el día que quieres modificar. Luego decide si recibes citas y en qué horario.</p><label>Día<input type="date" value={selectedDate} onChange={(event) => selectDate(event.target.value)} /></label><label className="admin-switch"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> Aceptar citas este día</label>{enabled && <div className="admin-time-row"><label>Primera hora<input type="time" value={start} onChange={(event) => setStart(event.target.value)} /></label><label>Última hora<input type="time" value={end} onChange={(event) => setEnd(event.target.value)} /></label></div>}<button className="admin-primary" disabled={!selectedDate} onClick={() => void saveException()}>Guardar cambios del día</button></div><div className="admin-card"><p className="admin-eyebrow">Paso 2 · Opcional</p><h2>Agregar una hora especial</h2><p className="admin-muted">Úsalo si quieres abrir una cita fuera del horario normal o con otra duración.</p><div className="admin-time-row"><label>Hora de la cita<input type="time" value={slotTime} onChange={(event) => setSlotTime(event.target.value)} /></label><label>Duración<select value={slotDuration} onChange={(event) => setSlotDuration(event.target.value)}><option value="20">20 minutos</option><option value="30">30 minutos</option><option value="60">1 hora</option><option value="90">90 minutos</option><option value="120">2 horas</option></select></label></div><button className="admin-primary" disabled={!selectedDate} onClick={() => void addCustomSlot()}>Agregar esta hora</button><div className="slot-list">{selectedCustomSlots.map((time) => <div key={time}><span>{formatTimeLabel(Number(time.slice(0, 2)), Number(time.slice(3)))} <small>{selectedOverride?.slotDurations?.[time] ?? 90} min</small></span><button onClick={() => void removeCustomSlot(time)}>Cerrar esta hora</button></div>)}{!selectedCustomSlots.length && <p className="admin-muted">Todavía no hay horas especiales.</p>}</div></div><div className="admin-card"><p className="admin-eyebrow">Paso 3 · Opcional</p><h2>Cerrar o reabrir una hora</h2><p className="admin-muted">Toca una hora para cambiar su disponibilidad. Rojo significa que está cerrada.</p><div className="slot-grid">{[...(selectedSchedule ? Array.from({ length: Math.ceil((selectedSchedule.end - selectedSchedule.start) / weeklySchedule.appointmentIntervalMin) }, (_, index) => timeValue(selectedSchedule.start + index * weeklySchedule.appointmentIntervalMin)) : []), ...selectedCustomSlots].filter((time, index, list) => list.indexOf(time) === index).map((time) => <button key={time} className={selectedOverride?.blockedTimes?.includes(time) ? 'blocked' : ''} onClick={() => void toggleBlocked(time)}>{selectedOverride?.blockedTimes?.includes(time) ? `Reabrir ${time}` : `Cerrar ${time}`}</button>)}</div>{!selectedDate && <p className="admin-muted">Primero selecciona un día arriba.</p>}</div></div>}
 
-      {tab === 'citas' && <div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Agenda</p><h2>{appointmentTab === 'pending' ? 'Citas pendientes' : 'Citas archivadas'}</h2></div><div className="admin-filters"><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="all">Todo el historial</option><option value="1">Este mes</option><option value="3">Últimos 3 meses</option><option value="12">Último año</option></select><input className="admin-search" placeholder="Buscar clienta o servicio" value={search} onChange={(event) => setSearch(event.target.value)} /></div></div><div className="admin-tabs"><button className={appointmentTab === 'pending' ? 'active' : ''} onClick={() => setAppointmentTab('pending')}>Pendientes</button><button className={appointmentTab === 'archived' ? 'active' : ''} onClick={() => setAppointmentTab('archived')}>Archivadas</button></div>{visibleAppointments.length ? visibleAppointments.map((appointment) => <article className="admin-appointment" key={appointment.id}><div><h3>{appointment.name}</h3><p>{new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')} · {appointment.time}</p><p>{appointment.services.join(', ')}</p><p>{formatColones(appointment.total)} · Adelanto {formatColones(appointment.deposit)}</p><a className="admin-whatsapp" href={whatsappUrl(appointment)} target="_blank" rel="noreferrer">Confirmar por WhatsApp</a><button className="admin-secondary" onClick={() => { setEditingAppointment(appointment); setEditDate(appointment.date); setEditTime(appointment.time) }}>Editar fecha y hora</button><button className="admin-secondary danger" onClick={() => void deleteAppointment(appointment)}>Eliminar</button><button className="admin-secondary" onClick={() => void archiveAppointment(appointment, appointmentTab === 'pending' ? 'archived' : 'pending')}>{appointmentTab === 'pending' ? 'Archivar' : 'Restaurar'}</button></div>{appointment.receiptDataUrl && <img className="admin-receipt" src={appointment.receiptDataUrl} alt="Comprobante de adelanto" />}</article>) : <p className="admin-muted">No hay citas que coincidan.</p>}{editingAppointment && <div className="admin-edit-box"><h3>Editar cita de {editingAppointment.name}</h3><div className="admin-time-row"><label>Fecha<input type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} /></label><label>Hora<input type="time" value={editTime} onChange={(event) => setEditTime(event.target.value)} /></label></div><button className="admin-primary" onClick={() => void editAppointment()}>Guardar nueva fecha y hora</button><button className="admin-secondary" onClick={() => setEditingAppointment(null)}>Cancelar</button></div>}</div>}
+      {tab === 'citas' && <div className="admin-card"><div className="card-heading"><div><p className="admin-eyebrow">Agenda</p><h2>{appointmentTab === 'pending' ? 'Citas pendientes' : 'Citas archivadas'}</h2></div><div className="admin-filters"><select value={period} onChange={(event) => setPeriod(event.target.value)}><option value="all">Todo el historial</option><option value="1">Este mes</option><option value="3">Últimos 3 meses</option><option value="12">Último año</option></select><input className="admin-search" placeholder="Buscar clienta o servicio" value={search} onChange={(event) => setSearch(event.target.value)} /></div></div><div className="admin-tabs"><button className={appointmentTab === 'pending' ? 'active' : ''} onClick={() => setAppointmentTab('pending')}>Pendientes</button><button className={appointmentTab === 'archived' ? 'active' : ''} onClick={() => setAppointmentTab('archived')}>Archivadas</button></div>{visibleAppointments.length ? visibleAppointments.map((appointment) => <article className="admin-appointment" key={appointment.id}><div><h3>{appointment.name}</h3><p>{new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')} · {appointment.time}</p><p>{appointment.services.join(', ')}</p><p>{formatColones(appointment.total)} · Adelanto {formatColones(appointment.deposit)}</p><a className="admin-whatsapp" href={whatsappUrl(appointment)} target="_blank" rel="noreferrer">Confirmar por WhatsApp</a><button className="admin-secondary" onClick={() => { setEditingAppointment(appointment); setEditDate(appointment.date); setEditTime(appointment.time) }}>Editar fecha y hora</button><button className="admin-secondary danger" onClick={() => void deleteAppointment(appointment)}>Eliminar</button><button className="admin-secondary" onClick={() => void archiveAppointment(appointment, appointmentTab === 'pending' ? 'archived' : 'pending')}>{appointmentTab === 'pending' ? 'Archivar' : 'Restaurar'}</button></div>{appointment.receiptDataUrl && (isPdf(appointment.receiptDataUrl)
+        ? <button className="admin-secondary" onClick={() => setReceiptView(appointment)}>Ver comprobante (PDF)</button>
+        : <img className="admin-receipt" src={appointment.receiptDataUrl} alt="Comprobante de adelanto" onClick={() => setReceiptView(appointment)} />)}</article>) : <p className="admin-muted">No hay citas que coincidan.</p>}{editingAppointment && <div className="admin-edit-box"><h3>Editar cita de {editingAppointment.name}</h3><div className="admin-time-row"><label>Fecha<input type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} /></label><label>Hora<input type="time" value={editTime} onChange={(event) => setEditTime(event.target.value)} /></label></div><button className="admin-primary" onClick={() => void editAppointment()}>Guardar nueva fecha y hora</button><button className="admin-secondary" onClick={() => setEditingAppointment(null)}>Cancelar</button></div>}</div>}
     </section>
+    {detailAppointment && <div className="admin-modal-backdrop" onClick={() => setDetailAppointment(null)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label="Detalle de la cita" onClick={(event) => event.stopPropagation()}>
+      <button className="admin-modal-close" aria-label="Cerrar" onClick={() => setDetailAppointment(null)}>×</button>
+      <p className="admin-eyebrow">Cita</p>
+      <h3>{detailAppointment.name}</h3>
+      <p>{new Date(`${detailAppointment.date}T12:00:00`).toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · {detailAppointment.time}</p>
+      <p>{detailAppointment.services.join(', ')}</p>
+      <p>{formatColones(detailAppointment.total)} · Adelanto {formatColones(detailAppointment.deposit)}</p>
+      <p>{detailAppointment.phone} · {detailAppointment.email}</p>
+      {detailAppointment.receiptDataUrl && (isPdf(detailAppointment.receiptDataUrl)
+        ? <div className="admin-modal-actions"><button onClick={() => setReceiptView(detailAppointment)}>Ver comprobante (PDF)</button></div>
+        : <img className="admin-modal-receipt" src={detailAppointment.receiptDataUrl} alt="Comprobante de adelanto" onClick={() => setReceiptView(detailAppointment)} />)}
+      <div className="admin-modal-actions">
+        <a className="admin-whatsapp" href={whatsappUrl(detailAppointment)} target="_blank" rel="noreferrer">Confirmar por WhatsApp</a>
+        <button onClick={() => { setEditingAppointment(detailAppointment); setEditDate(detailAppointment.date); setEditTime(detailAppointment.time); setDetailAppointment(null); setTab('citas'); setAppointmentTab('pending') }}>Editar fecha y hora</button>
+        <button onClick={() => { void archiveAppointment(detailAppointment, 'archived'); setDetailAppointment(null) }}>Archivar</button>
+      </div>
+    </div></div>}
+    {receiptView?.receiptDataUrl && <div className="admin-modal-backdrop" onClick={() => setReceiptView(null)}><div className="admin-modal wide" role="dialog" aria-modal="true" aria-label="Comprobante" onClick={(event) => event.stopPropagation()}>
+      <button className="admin-modal-close" aria-label="Cerrar" onClick={() => setReceiptView(null)}>×</button>
+      <h3>Comprobante de {receiptView.name}</h3>
+      {isPdf(receiptView.receiptDataUrl)
+        ? <iframe src={receiptView.receiptDataUrl} title="Comprobante" />
+        : <img className="admin-modal-receipt-full" src={receiptView.receiptDataUrl} alt="Comprobante de adelanto" />}
+    </div></div>}
   </main>
 }
