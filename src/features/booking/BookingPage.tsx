@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { business, categories, formatColones, formatDuration, weeklySchedule, type Service } from '../../config/business'
-import { formatTimeLabel, getBlockedTimes, getScheduleForDate, readDayOverrides } from '../../config/availability'
+import { dateKey, formatTimeLabel, getBlockedTimes, getScheduleForDate, readDayOverrides } from '../../config/availability'
 import type { Appointment } from '../../config/appointments'
 import styles from './BookingPage.module.css'
 
@@ -19,7 +19,7 @@ function getAvailableTimes(date: Date, overrides: ReturnType<typeof readDayOverr
   const schedule = getScheduleForDate(date, overrides)
   if (!schedule) return []
   const blockedTimes = getBlockedTimes(date, overrides)
-  const customTimes = overrides.find((item) => item.date === date.toISOString().slice(0, 10))?.availableTimes ?? []
+  const customTimes = overrides.find((item) => item.date === dateKey(date))?.availableTimes ?? []
   const appointmentInterval = weeklySchedule.appointmentIntervalMin
   const maxAppointments = date.getDay() === 6 ? weeklySchedule.saturdayMaxAppointments : weeklySchedule.maxAppointments
   const { start, end } = schedule
@@ -97,7 +97,7 @@ export default function BookingPage() {
       phone,
       email,
       services: services.map((service) => service.name),
-      date: date.toISOString().slice(0, 10),
+      date: dateKey(date),
       time,
       total,
       deposit,

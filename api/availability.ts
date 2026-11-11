@@ -39,7 +39,7 @@ function readBody(request: IncomingMessage) {
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
-  response.writeHead(status, { 'Content-Type': 'application/json' })
+  response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
   response.end(JSON.stringify(body))
 }
 
@@ -59,7 +59,7 @@ export default async function handler(request: IncomingMessage, response: Server
     const sql = await ensureTable()
     if (request.method === 'GET') {
       const rows = await sql`SELECT date, enabled, start_minutes, end_minutes, blocked_times, available_times, slot_durations FROM availability_overrides ORDER BY date`
-      const appointments = await sql`SELECT date::text, time FROM appointments WHERE status = 'pending'`
+      const appointments = await sql`SELECT date::text, time FROM appointments WHERE status IS DISTINCT FROM 'archived'`
       const bookedByDate = new Map<string, string[]>()
       appointments.forEach((appointment) => {
         const date = String(appointment.date)

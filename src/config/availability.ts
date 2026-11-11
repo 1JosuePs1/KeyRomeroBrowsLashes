@@ -26,7 +26,8 @@ export function saveDayOverrides(overrides: DayOverride[]) {
 }
 
 export function dateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${date.getDate().toString().padStart(2, "0")}`;
 }
 
 export function getScheduleForDate(date: Date, overrides: DayOverride[]) {

@@ -141,6 +141,12 @@ export default async function handler(request: IncomingMessage, response: Server
         return
       }
 
+      const sameDay = await sql`SELECT time FROM appointments WHERE date = ${body.date} AND status IS DISTINCT FROM 'archived'`
+      if (sameDay.some((row) => timeKey(String(row.time)) === timeKey(body.time as string))) {
+        sendJson(response, 409, { error: 'Ese horario ya está reservado' })
+        return
+      }
+
       let rows
       try {
         rows = await sql`
@@ -157,7 +163,11 @@ export default async function handler(request: IncomingMessage, response: Server
       }
 
       const appointment = toAppointment(rows[0] as Record<string, unknown>)
-      await setSlotBlocked(sql, body.date, body.time, true)
+      try {
+        await setSlotBlocked(sql, body.date, body.time, true)
+      } catch (error) {
+        console.error('Could not block booked slot', error)
+      }
       const resendKey = process.env.RESEND_API_KEY
       if (resendKey) {
         const emailData = {
@@ -169,7 +179,7 @@ export default async function handler(request: IncomingMessage, response: Server
           total: body.total ?? 0,
           deposit: body.deposit ?? 0,
         }
-        await Promise.all([
+        await Promise.allSettled([
           sendEmail(resendKey, process.env.ADMIN_EMAIL || 'keyromero50@gmail.com', `Nueva solicitud de cita - ${body.name}`, renderAppointmentEmail(emailData, true)),
           sendEmail(resendKey, body.email, 'Recibimos tu solicitud de cita | Keylin Romero', renderAppointmentEmail(emailData, false)),
         ])
@@ -186,8 +196,15 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!body?.id || !['pending', 'archived'].includes(body.status ?? '')) { sendJson(response, 400, { error: 'Solicitud inválida' }); return }
       const currentRows = await sql`SELECT date::text, time FROM appointments WHERE id = ${body.id} LIMIT 1`
       if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
-      await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`
       const current = currentRows[0] as { date: string; time: string }
+      if (body.status === 'pending') {
+        const sameDay = await sql`SELECT time FROM appointments WHERE date = ${current.date} AND id <> ${body.id} AND status IS DISTINCT FROM 'archived'`
+        if (sameDay.some((row) => timeKey(String(row.time)) === timeKey(current.time))) {
+          sendJson(response, 409, { error: 'La hora ya está ocupada' })
+          return
+        }
+      }
+      await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`
       await setSlotBlocked(sql, current.date, current.time, body.status === 'pending')
       sendJson(response, 200, { updated: true })
       return
@@ -199,11 +216,11 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!body?.id || !body.date || !body.time) { sendJson(response, 400, { error: 'Fecha y hora son obligatorias' }); return }
       const currentRows = await sql`SELECT date::text, time FROM appointments WHERE id = ${body.id} LIMIT 1`
       if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
-      const conflicts = await sql`
-        SELECT id FROM appointments
-        WHERE date = ${body.date} AND time = ${body.time} AND id <> ${body.id} AND status = 'pending'
-        LIMIT 1
+      const sameDay = await sql`
+        SELECT time FROM appointments
+        WHERE date = ${body.date} AND id <> ${body.id} AND status IS DISTINCT FROM 'archived'
       `
+      const conflicts = sameDay.filter((row) => timeKey(String(row.time)) === timeKey(body.time as string))
       if (conflicts.length) { sendJson(response, 409, { error: 'La hora ya está ocupada' }); return }
       const rows = await sql`
         UPDATE appointments SET date = ${body.date}, time = ${body.time}
