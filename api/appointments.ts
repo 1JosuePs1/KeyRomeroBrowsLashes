@@ -5,6 +5,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 export const config = { runtime: 'nodejs' }
 
+const MAX_RECEIPT_BYTES = 3 * 1024 * 1024
+const MAX_REQUEST_BYTES = 4.5 * 1024 * 1024
+
+class RequestBodyTooLargeError extends Error {}
+
 type AppointmentBody = {
   id: string
   createdAt: string
@@ -107,13 +112,32 @@ async function sendEmail(apiKey: string, to: string, subject: string, html: stri
 function readBody(request: IncomingMessage) {
   return new Promise<Record<string, unknown> | null>((resolve, reject) => {
     let body = ''
-    request.setEncoding('utf8')
-    request.on('data', (chunk) => { body += chunk })
+    let size = 0
+    let tooLarge = false
+    request.on('data', (chunk: Buffer) => {
+      if (tooLarge) return
+      size += chunk.length
+      if (size > MAX_REQUEST_BYTES) {
+        tooLarge = true
+        reject(new RequestBodyTooLargeError())
+        request.resume()
+        return
+      }
+      body += chunk.toString('utf8')
+    })
     request.on('end', () => {
+      if (tooLarge) return
       try { resolve(JSON.parse(body) as Record<string, unknown>) } catch { resolve(null) }
     })
     request.on('error', reject)
   })
+}
+
+function getReceiptSize(dataUrl: string) {
+  const match = /^data:(image\/(?:jpeg|png)|application\/pdf);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl)
+  if (!match || match[2].length % 4 !== 0) return null
+  const padding = match[2].endsWith('==') ? 2 : match[2].endsWith('=') ? 1 : 0
+  return Math.floor(match[2].length * 3 / 4) - padding
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
@@ -142,6 +166,22 @@ export default async function handler(request: IncomingMessage, response: Server
         sendJson(response, 400, { error: 'Faltan datos obligatorios' })
         return
       }
+      const receiptDataUrl = body.receiptDataUrl
+      if (!manual || receiptDataUrl !== undefined) {
+        if (typeof receiptDataUrl !== 'string') {
+          sendJson(response, 400, { error: 'El comprobante es obligatorio' })
+          return
+        }
+        const receiptSize = getReceiptSize(receiptDataUrl)
+        if (receiptSize === null) {
+          sendJson(response, 400, { error: 'El comprobante debe ser JPG, PNG o PDF' })
+          return
+        }
+        if (receiptSize > MAX_RECEIPT_BYTES) {
+          sendJson(response, 413, { error: 'El comprobante debe pesar máximo 3 MB' })
+          return
+        }
+      }
       const phone = body.phone ?? ''
       const email = body.email ?? ''
       const receiptName = body.receiptName ?? 'Cita manual'
@@ -156,7 +196,7 @@ export default async function handler(request: IncomingMessage, response: Server
       try {
         rows = await sql`
           INSERT INTO appointments (id, created_at, name, phone, email, services, date, time, total, deposit, receipt_name, receipt_data_url)
-          VALUES (${body.id}, ${body.createdAt ?? new Date().toISOString()}, ${body.name}, ${phone}, ${email}, ${body.services}, ${body.date}, ${body.time}, ${body.total ?? 0}, ${body.deposit ?? 0}, ${receiptName}, ${body.receiptDataUrl ?? null})
+          VALUES (${body.id}, ${body.createdAt ?? new Date().toISOString()}, ${body.name}, ${phone}, ${email}, ${body.services}, ${body.date}, ${body.time}, ${body.total ?? 0}, ${body.deposit ?? 0}, ${receiptName}, ${receiptDataUrl ?? null})
           RETURNING id, created_at, name, phone, email, services, date::text, time, total, deposit, receipt_name, receipt_data_url, status
         `
       } catch (error) {
@@ -261,6 +301,10 @@ export default async function handler(request: IncomingMessage, response: Server
     response.writeHead(405)
     response.end('Method not allowed')
   } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      sendJson(response, 413, { error: 'La solicitud supera el tamaño permitido' })
+      return
+    }
     console.error('Appointments API error', error)
     sendJson(response, 500, { error: 'No se pudo procesar la solicitud' })
   }

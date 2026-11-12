@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { business, categories, formatColones, formatDuration, weeklySchedule, type Service } from '../../config/business'
 import { dateKey, formatTimeLabel, getBlockedTimes, getScheduleForDate, readDayOverrides } from '../../config/availability'
 import type { Appointment } from '../../config/appointments'
@@ -6,6 +6,48 @@ import styles from './BookingPage.module.css'
 
 const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Setiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const allServices = categories.flatMap((category) => category.services)
+const MAX_RECEIPT_BYTES = 3 * 1024 * 1024
+const MAX_RECEIPT_DIMENSION = 720
+
+function readAsDataUrl(file: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('No se pudo leer el comprobante.'))
+    reader.onerror = () => reject(new Error('No se pudo leer el comprobante.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function prepareReceipt(file: File) {
+  if (file.size > MAX_RECEIPT_BYTES) throw new Error('El comprobante debe pesar máximo 3 MB.')
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+    return readAsDataUrl(file)
+  }
+  if (!['image/jpeg', 'image/png'].includes(file.type)) {
+    throw new Error('Adjunte una imagen JPG o PNG, o un archivo PDF.')
+  }
+
+  const image = await createImageBitmap(file)
+  try {
+    const scale = Math.min(1, MAX_RECEIPT_DIMENSION / Math.max(image.width, image.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.width * scale))
+    canvas.height = Math.max(1, Math.round(image.height * scale))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('No se pudo procesar la imagen del comprobante.')
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+    for (const quality of [0.82, 0.68, 0.52, 0.4]) {
+      const compressed = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))
+      if (compressed && compressed.size <= MAX_RECEIPT_BYTES) return readAsDataUrl(compressed)
+    }
+    throw new Error('No se pudo comprimir la imagen a menos de 3 MB.')
+  } finally {
+    image.close()
+  }
+}
 
 function getMonthDays(month: Date) {
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1)
@@ -53,12 +95,14 @@ export default function BookingPage() {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
-  const [receipt, setReceipt] = useState<File | null>(null)
+  const [receiptDataUrl, setReceiptDataUrl] = useState('')
   const [receiptName, setReceiptName] = useState('')
+  const [receiptBusy, setReceiptBusy] = useState(false)
   const [confirmedAppointment, setConfirmedAppointment] = useState<Appointment | null>(null)
   const [submitError, setSubmitError] = useState('')
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   const [overrides, setOverrides] = useState<ReturnType<typeof readDayOverrides>>([])
+  const receiptRequestId = useRef(0)
   const services = allServices.filter((service) => selected.includes(service.id))
   const visibleCategory = categories.find((category) => category.id === activeCategory) ?? categories[0]
   const total = services.reduce((sum, service) => sum + service.price, 0)
@@ -74,6 +118,28 @@ export default function BookingPage() {
   const canGoPrevious = calendarMonth > currentMonth
   const canGoNext = calendarMonth < lastMonth
   const toggle = (service: Service) => setSelected((current) => current.includes(service.id) ? current.filter((id) => id !== service.id) : [...current, service.id])
+  const handleReceiptChange = async (file: File | null) => {
+    const requestId = ++receiptRequestId.current
+    setReceiptName(file?.name ?? '')
+    setReceiptDataUrl('')
+    setSubmitError('')
+    if (!file) {
+      setReceiptBusy(false)
+      return
+    }
+
+    setReceiptBusy(true)
+    try {
+      const preparedReceipt = await prepareReceipt(file)
+      if (requestId === receiptRequestId.current) setReceiptDataUrl(preparedReceipt)
+    } catch (error) {
+      if (requestId === receiptRequestId.current) {
+        setSubmitError(error instanceof Error ? error.message : 'No se pudo procesar el comprobante.')
+      }
+    } finally {
+      if (requestId === receiptRequestId.current) setReceiptBusy(false)
+    }
+  }
   useEffect(() => {
     fetch('/api/availability')
       .then(async (response) => response.ok ? await response.json() as ReturnType<typeof readDayOverrides> : [])
@@ -81,15 +147,7 @@ export default function BookingPage() {
       .catch(() => undefined)
   }, [])
   const send = async () => {
-    if (!name || !phone || !email || !date || !time || !services.length || !receipt) return
-    const receiptDataUrl = receipt
-      ? await new Promise<string | undefined>((resolve) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : undefined)
-          reader.onerror = () => resolve(undefined)
-          reader.readAsDataURL(receipt)
-        })
-      : undefined
+    if (!name || !phone || !email || !date || !time || !services.length || !receiptDataUrl || receiptBusy) return
     const appointment: Appointment = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
@@ -111,7 +169,11 @@ export default function BookingPage() {
       body: JSON.stringify(appointment),
     })
     if (!response.ok) {
-      setSubmitError(response.status === 409 ? 'Ese horario acaba de ser reservado. Elige otra hora.' : 'No pudimos guardar tu solicitud. Intenta de nuevo.')
+      setSubmitError(response.status === 409
+        ? 'Ese horario acaba de ser reservado. Elige otra hora.'
+        : response.status === 413
+          ? 'El comprobante debe pesar máximo 3 MB.'
+          : 'No pudimos guardar tu solicitud. Intenta de nuevo.')
       return
     }
     setConfirmedAppointment(await response.json() as Appointment)
@@ -128,6 +190,6 @@ export default function BookingPage() {
       <section><h2><span>03</span> Elija la hora</h2><div className={styles.times}>{(date ? getAvailableTimes(date, overrides) : []).map((slot) => <button type="button" key={slot} className={time === slot ? styles.timeSelected : ''} onClick={() => setTime(slot)}>{slot}</button>)}</div>{!date && <p className={styles.hint}>Elija un día para ver las horas disponibles.</p>}{date?.getDay() === 0 && <p className={styles.hint}>Los domingos el estudio permanece cerrado.</p>}</section>
       <section><h2><span>04</span> Sus datos</h2><input required aria-label="Su nombre obligatorio" placeholder="Su nombre *" value={name} onChange={(event) => setName(event.target.value)} /><input required type="tel" inputMode="numeric" aria-label="Teléfono obligatorio" placeholder="Teléfono (88888888) *" value={phone} onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))} /><input required type="email" aria-label="Correo electrónico obligatorio" placeholder="Correo electrónico *" value={email} onChange={(event) => setEmail(event.target.value)} /><label className={styles.check}><input type="checkbox" /> Agendaré para otra persona</label></section>
       <section><h2><span>05</span> Resumen de su cita</h2><div className={styles.summary}>{services.length ? <>{services.map((service) => <p key={service.id}>{service.name} <b>{formatColones(service.price)}</b></p>)}<hr /><p>Duración <b>{formatDuration(duration)}</b></p><p>Total <b>{formatColones(total)}</b></p><p>Adelanto <b>{formatColones(deposit)}</b></p></> : 'Aún no ha elegido servicios.'}</div></section>
-      <section><h2><span>06</span> Adelanto por SINPE Móvil</h2><div className={styles.payment}>Para asegurar su cupo, deposite <b>{formatColones(deposit || 5000)}</b> por SINPE Móvil al <b>{business.sinpe}</b> a nombre de <b>{business.sinpeName}</b>. El adelanto no es reembolsable si no asiste.</div><label className={styles.upload}><span>Adjunte su comprobante *</span><small>{receiptName || 'PNG, JPG o PDF · máximo 10 MB'}</small><input required type="file" accept=".png,.jpg,.jpeg,.pdf" onChange={(event) => { const file = event.target.files?.[0] ?? null; setReceipt(file); setReceiptName(file?.name ?? '') }} /></label>{submitError && <p className={styles.error}>{submitError}</p>}<p className={styles.notice}>ⓘ Su solicitud quedará guardada para que Keylin la revise y confirme por WhatsApp.</p><button className={styles.submit} disabled={!services.length || !name || !phone || !email || !date || !time || !receipt} onClick={send}>Reservar cita →</button></section>
+      <section><h2><span>06</span> Adelanto por SINPE Móvil</h2><div className={styles.payment}>Para asegurar su cupo, deposite <b>{formatColones(deposit || 5000)}</b> por SINPE Móvil al <b>{business.sinpe}</b> a nombre de <b>{business.sinpeName}</b>. El adelanto no es reembolsable si no asiste.</div><label className={styles.upload}><span>Adjunte su comprobante *</span><small>{receiptBusy ? 'Procesando comprobante…' : receiptName || 'JPG, PNG o PDF · máximo 3 MB; imágenes a 720 px'}</small><input required type="file" accept=".png,.jpg,.jpeg,.pdf" onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0] ?? null; input.value = ''; void handleReceiptChange(file) }} /></label>{submitError && <p className={styles.error}>{submitError}</p>}<p className={styles.notice}>ⓘ Su solicitud quedará guardada para que Keylin la revise y confirme por WhatsApp.</p><button className={styles.submit} disabled={!services.length || !name || !phone || !email || !date || !time || !receiptDataUrl || receiptBusy} onClick={send}>Reservar cita →</button></section>
     </div></section></main>
 }
