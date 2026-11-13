@@ -101,6 +101,7 @@
 .agenda-print,.agenda-new,.agenda-next{cursor:pointer;font:inherit}
 .agenda-print{background:#fff;border:1px solid #dbc8b2;border-radius:99px;color:var(--ink);font-size:13px;padding:9px 16px}
 .agenda-closed-note{background:#f4ede3;border-radius:10px;color:var(--muted);margin:0 0 12px;padding:10px 14px}
+.agenda-week-list{display:none}
 
 .admin-modal-backdrop{align-items:center;animation:modal-fade .2s ease;backdrop-filter:blur(6px);background:rgba(36,24,18,.62);display:flex;inset:0;justify-content:center;padding:20px;position:fixed;z-index:100}
 .admin-modal{animation:modal-rise .25s ease;background:#fffdf9;border-radius:24px;box-shadow:0 30px 80px rgba(0,0,0,.35);max-height:90vh;max-width:540px;overflow:auto;padding:30px;position:relative;width:100%}
@@ -139,5 +140,24 @@
   .agenda-search,.agenda-search input{width:100%}
   .agenda-results{width:100%}
   .agenda-controls{width:100%;justify-content:space-between}
+  .agenda-scroll,.agenda-hint,.agenda-day-list{display:none}
+  .agenda-week-list{display:grid;gap:14px}
+  .agenda-week-day{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px}
+  .agenda-week-day.today{border-color:var(--gold)}
+  .agenda-week-day-head{align-items:center;display:flex;gap:8px;justify-content:space-between;margin-bottom:12px}
+  .agenda-week-day-head h3{color:var(--ink);font:400 20px Georgia,serif;margin:0;text-transform:capitalize}
+  .agenda-week-day-head h3 span{background:var(--ink);border-radius:99px;color:#fff;display:inline-block;font:600 11px system-ui,sans-serif;margin-left:8px;padding:3px 8px;text-transform:none;vertical-align:middle}
+  .agenda-week-day-head small{color:var(--muted);display:block;margin-top:4px}
+  .agenda-week-day-head button{background:var(--gold-soft);border:0;border-radius:99px;color:var(--ink);cursor:pointer;flex-shrink:0;font:600 13px system-ui,sans-serif;padding:9px 12px}
+  .agenda-week-day .agenda-day-item{margin-bottom:8px}
+  .agenda-week-day .agenda-day-item:last-child{margin-bottom:0}
+  .agenda-week-day .agenda-day-item.archived{opacity:1}
+  .agenda-week-day .agenda-day-item.flash{animation:agenda-flash 1s ease 3}
+  .agenda-week-item-main{background:transparent;border:0;color:var(--ink);cursor:pointer;display:flex;flex:1 1 100%;flex-direction:column;gap:4px;min-width:0;padding:0;text-align:left}
+  .agenda-week-item-main b{color:var(--tone);font-size:14px}
+  .agenda-week-item-main span{font-size:16px;font-weight:600;overflow-wrap:anywhere}
+  .agenda-week-item-main small{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+  .agenda-week-item-main em{background:#e8e3dc;border-radius:99px;color:#6b5f54;font:600 10px system-ui,sans-serif;margin-left:8px;padding:3px 8px;text-transform:uppercase}
+  .agenda-week-empty{color:var(--muted);font-size:14px;margin:0}
   .admin-modal{padding:22px}
 }

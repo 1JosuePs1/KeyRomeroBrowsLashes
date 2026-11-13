@@ -186,7 +186,7 @@ export default async function handler(request: IncomingMessage, response: Server
       const email = body.email ?? ''
       const receiptName = body.receiptName ?? 'Cita manual'
 
-      const sameDay = await sql`SELECT time FROM appointments WHERE date = ${body.date} AND status IS DISTINCT FROM 'archived'`
+      const sameDay = await sql`SELECT time FROM appointments WHERE date = ${body.date}`
       if (sameDay.some((row) => timeKey(String(row.time)) === timeKey(body.time as string))) {
         sendJson(response, 409, { error: 'Ese horario ya está reservado' })
         return
@@ -247,14 +247,13 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
       const current = currentRows[0] as { date: string; time: string }
       if (body.status !== 'archived') {
-        const sameDay = await sql`SELECT time FROM appointments WHERE date = ${current.date} AND id <> ${body.id} AND status IS DISTINCT FROM 'archived'`
+        const sameDay = await sql`SELECT time FROM appointments WHERE date = ${current.date} AND id <> ${body.id}`
         if (sameDay.some((row) => timeKey(String(row.time)) === timeKey(current.time))) {
           sendJson(response, 409, { error: 'La hora ya está ocupada' })
           return
         }
       }
       await sql`UPDATE appointments SET status = ${body.status} WHERE id = ${body.id}`
-      await setSlotBlocked(sql, current.date, current.time, body.status !== 'archived')
       sendJson(response, 200, { updated: true })
       return
     }
@@ -267,7 +266,7 @@ export default async function handler(request: IncomingMessage, response: Server
       if (!currentRows.length) { sendJson(response, 404, { error: 'Cita no encontrada' }); return }
       const sameDay = await sql`
         SELECT time FROM appointments
-        WHERE date = ${body.date} AND id <> ${body.id} AND status IS DISTINCT FROM 'archived'
+        WHERE date = ${body.date} AND id <> ${body.id}
       `
       const conflicts = sameDay.filter((row) => timeKey(String(row.time)) === timeKey(body.time as string))
       if (conflicts.length) { sendJson(response, 409, { error: 'La hora ya está ocupada' }); return }

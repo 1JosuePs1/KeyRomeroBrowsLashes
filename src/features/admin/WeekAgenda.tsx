@@ -105,6 +105,7 @@ export default function WeekAgenda({ appointments, overrides, onSelect, onCreate
   const [dragId, setDragId] = useState<string | null>(null)
   const [flashId, setFlashId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const mobileItemsRef = useRef(new Map<string, HTMLDivElement>())
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60000)
@@ -149,6 +150,12 @@ export default function WeekAgenda({ appointments, overrides, onSelect, onCreate
     element.scrollTop = Math.max(0, ((minutes - firstHour * 60 - 60) / 60) * HOUR_HEIGHT)
   }, [weekStart, firstHour])
 
+  useEffect(() => {
+    if (flashId && window.matchMedia('(max-width: 720px)').matches) {
+      mobileItemsRef.current.get(flashId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [flashId, weekStart, filter, showArchived])
+
   const activeToday = layoutDay((allByDay.get(todayKey) ?? []).filter((item) => item.status !== 'archived'))
   const live = activeToday.find((block) => block.start <= nowMinutes && nowMinutes < block.end)
   const upcoming = appointments
@@ -185,6 +192,10 @@ export default function WeekAgenda({ appointments, overrides, onSelect, onCreate
     ? appointments.filter((item) => `${item.name} ${item.phone} ${item.services.join(' ')}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
     : []
   const jumpTo = (item: Appointment) => {
+    if (window.matchMedia('(max-width: 720px)').matches) {
+      setFilter('all')
+      setShowArchived(true)
+    }
     goTo(new Date(`${item.date}T12:00:00`))
     setFlashId(item.id)
     setQuery('')
@@ -228,6 +239,38 @@ export default function WeekAgenda({ appointments, overrides, onSelect, onCreate
           {results.length ? results.map((item) => <button type="button" key={item.id} onClick={() => jumpTo(item)}><b>{item.name}</b><span>{new Date(`${item.date}T12:00:00`).toLocaleDateString('es-CR', { day: 'numeric', month: 'short' })} · {item.time}</span></button>) : <p>Sin resultados</p>}
         </div>}
       </div>
+    </div>
+
+    <div className="agenda-week-list" aria-label="Citas de la semana">
+      {days.map((day, index) => {
+        const key = dateKey(day)
+        const blocks = weekBlocks[index]
+        const title = day.toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long' })
+        return <section className={`agenda-week-day${key === todayKey ? ' today' : ''}`} key={key}>
+          <div className="agenda-week-day-head">
+            <div>
+              <h3>{title}{key === todayKey && <span>Hoy</span>}</h3>
+              {!getScheduleForDate(day, overrides) && <small>Cerrado para nuevas reservas</small>}
+            </div>
+            <button type="button" onClick={() => { setSelectedDay(key); onCreate(key, '09:00') }} aria-label={`Nueva cita para ${title}`}>+ Cita</button>
+          </div>
+          {blocks.length ? blocks.map((block) => <div
+            key={block.appointment.id}
+            ref={(element) => { if (element) mobileItemsRef.current.set(block.appointment.id, element); else mobileItemsRef.current.delete(block.appointment.id) }}
+            className={`agenda-day-item ${categoryOf(block.appointment)}${block.appointment.status === 'archived' ? ' archived' : ''}${flashId === block.appointment.id ? ' flash' : ''}`}
+          >
+            <button type="button" className="agenda-week-item-main" onClick={() => { setSelectedDay(key); onSelect(block.appointment) }}>
+              <b>{formatHour(block.start)}</b>
+              <span>{block.appointment.name}{block.appointment.status === 'archived' && <em>Archivada</em>}</span>
+              <small>{block.appointment.services.join(', ')}</small>
+            </button>
+            <div className="agenda-day-actions">
+              <a href={whatsappUrl(block.appointment)} target="_blank" rel="noreferrer">WhatsApp</a>
+              <a href={`tel:${block.appointment.phone}`}>Llamar</a>
+            </div>
+          </div>) : <p className="agenda-week-empty">No hay citas este día.</p>}
+        </section>
+      })}
     </div>
 
     <div className="agenda-scroll" ref={scrollRef}>
