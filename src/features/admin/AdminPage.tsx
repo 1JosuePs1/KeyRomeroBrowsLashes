@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { formatTimeLabel, getScheduleForDate, type DayOverride } from '../../config/availability'
 import type { Appointment } from '../../config/appointments'
-import { categories, formatColones, weeklySchedule } from '../../config/business'
+import { business, categories, formatColones, weeklySchedule } from '../../config/business'
 import '../../styles/admin.css'
 import { normalizePhone } from '../../config/phone'
 import WeekAgenda from './WeekAgenda'
@@ -341,10 +341,12 @@ export default function AdminPage() {
   const phone = normalizePhone(appointment.phone) ?? appointment.phone.replace(/\D/g, '')
   const fecha = new Date(`${appointment.date}T12:00:00`).toLocaleDateString('es-CR')
   const message =
-      `Hola ${appointment.name}, soy Keylin. Confirmo tu cita para el ${fecha}, a las ${appointment.time}. ` +
-      `Servicio: ${appointment.services.join(', ')}. ` +
-      `Total: ${formatColones(appointment.total)}. ` +
-      `Adelanto: ${formatColones(appointment.deposit)}. ¡Te esperamos!`
+      `¡Hola, ${appointment.name}! 😊 Soy Keylin. Te escribo para confirmar tu cita del *${fecha} a las ${appointment.time}*. 🌟\n\n` +
+      `💆‍♀️ Servicio: ${appointment.services.join(', ')}\n` +
+      `💰 Total: ${formatColones(appointment.total)} · Adelanto: ${formatColones(appointment.deposit)}\n\n` +
+      `👩‍👧‍👦💄 Recuerda asistir sin niños ni acompañantes y sin maquillaje en tus ojos. ✨\n\n` +
+      `⏰ Después de 10 minutos, tu cita será cancelada sin devolución del adelanto, para respetar el tiempo de las siguientes chicas.\n\n` +
+      `📍 *Cartago centro:*\nUsa Waze para llegar: ${business.wazeUrl}`
 
     return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
   }
