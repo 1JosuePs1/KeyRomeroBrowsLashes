@@ -265,7 +265,7 @@ export default function WeekAgenda({ appointments, overrides, onSelect, onCreate
               <small>{block.appointment.services.join(', ')}</small>
             </button>
             <div className="agenda-day-actions">
-              <a href={whatsappUrl(block.appointment)} target="_blank" rel="noreferrer">WhatsApp</a>
+              <a href={whatsappUrl(block.appointment)} target="_blank" rel="noreferrer">Recordatorio WhatsApp</a>
               <a href={`tel:${block.appointment.phone}`}>Llamar</a>
             </div>
           </div>) : <p className="agenda-week-empty">No hay citas este día.</p>}
@@ -364,7 +364,7 @@ export default function WeekAgenda({ appointments, overrides, onSelect, onCreate
           <small>{block.appointment.services.join(', ')}</small>
         </button>
         <div className="agenda-day-actions">
-          <a href={whatsappUrl(block.appointment)} target="_blank" rel="noreferrer">WhatsApp</a>
+          <a href={whatsappUrl(block.appointment)} target="_blank" rel="noreferrer">Recordatorio WhatsApp</a>
           <a href={`tel:${block.appointment.phone}`}>Llamar</a>
         </div>
       </div>) : <p className="admin-muted">No hay citas este día.</p>}
